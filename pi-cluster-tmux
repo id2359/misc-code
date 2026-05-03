@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+hosts=(pi1 pi2 pi3 pi4)
+session=${1:-orb}
+
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "tmux is not installed on this machine" >&2
+  exit 1
+fi
+
+if [ -n "${TMUX:-}" ]; then
+  echo "Run this script outside tmux. It creates a local tmux control session." >&2
+  exit 1
+fi
+
+local_session="cluster-${session}"
+
+if tmux has-session -t "$local_session" 2>/dev/null; then
+  exec tmux attach -t "$local_session"
+fi
+
+tmux new-session -d -s "$local_session" -n "pi1" "ssh pi1 -t 'tmux attach -t $session || tmux new -s $session'"
+for h in "${hosts[@]:1}"; do
+  tmux new-window -t "$local_session" -n "$h" "ssh $h -t 'tmux attach -t $session || tmux new -s $session'"
+done
+
+echo "Created local tmux session: $local_session"
+echo "Attach with: tmux attach -t $local_session"
+exec tmux attach -t "$local_session"
