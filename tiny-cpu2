@@ -1,0 +1,643 @@
+#lang racket
+
+;;; ================================================================
+;;; tiny-cpu.rkt  —  An 8-bit CPU emulator
+;;;
+;;; ┌─ Architecture ────────────────────────────────────────────────┐
+;;; │  Registers   A, B, C   8-bit general purpose                  │
+;;; │              PC        10-bit program counter  (0–1023)       │
+;;; │              SP        10-bit stack pointer (grows downward)  │
+;;; │  Flags       Z zero    C carry    N negative                  │
+;;; │  Memory      1024 bytes                                       │
+;;; │               0x000–0x1FF  program space  (512 B)             │
+;;; │               0x200–0x3BF  data / heap    (448 B)             │
+;;; │               0x3C0–0x3FF  stack           (64 B)             │
+;;; └───────────────────────────────────────────────────────────────┘
+;;;
+;;; Instruction set (29 opcodes, 1–3 bytes each):
+;;;   Load/Store   NOP  LDI  LDA LDB LDC  STA STB STC
+;;;   Moves        MOV
+;;;   Arithmetic   ADD SUB MUL  INC DEC  ADI
+;;;   Logic        AND OR XOR NOT  SHL SHR
+;;;   Compare      CMP CMI
+;;;   Jumps        JMP  JZ JNZ JC JN  JGT JLT
+;;;   Stack        PUSH POP  CALL RET
+;;;   I/O          OUT OUTC OUTX
+;;;   System       HLT
+;;; ================================================================
+
+
+;; ── 1. CPU struct ────────────────────────────────────────────────
+
+(struct cpu
+  (mem                  ; (vectorof byte) — 1024 bytes of RAM
+   [pc  #:mutable]      ; program counter (0–1023)
+   [sp  #:mutable]      ; stack pointer   (starts at 1024, grows ↓)
+   [a   #:mutable]      ; accumulator
+   [b   #:mutable]      ; register B
+   [c   #:mutable]      ; register C
+   [zf  #:mutable]      ; flag: zero
+   [cf  #:mutable]      ; flag: carry
+   [nf  #:mutable]      ; flag: negative
+   [hlt #:mutable]      ; halted?
+   [cycles #:mutable])  ; instruction count
+  #:transparent)
+
+(define MEM-SIZE 1024)
+
+(define (make-cpu)
+  (cpu (make-vector MEM-SIZE 0)
+       0          ; PC starts at address 0
+       MEM-SIZE   ; SP = 1024 (empty-stack sentinel; first push goes to 1023)
+       0 0 0      ; A=0 B=0 C=0
+       #f #f #f   ; Z=0 C=0 N=0
+       #f         ; not halted
+       0))        ; 0 cycles executed
+
+
+;; ── 2. Memory & fetch helpers ────────────────────────────────────
+
+(define (mem-read cpu addr)
+  (unless (< -1 addr MEM-SIZE)
+    (error 'cpu "Memory read out of bounds: #x~x" addr))
+  (vector-ref (cpu-mem cpu) addr))
+
+(define (mem-write! cpu addr val)
+  (unless (< -1 addr MEM-SIZE)
+    (error 'cpu "Memory write out of bounds: #x~x" addr))
+  (vector-set! (cpu-mem cpu) addr (bitwise-and val #xFF)))
+
+(define (mem-load! cpu bytes [start 0])
+  (for ([b bytes] [i (in-naturals start)])
+    (mem-write! cpu i b)))
+
+;; Fetch one byte and advance PC
+(define (fetch! cpu)
+  (define b (mem-read cpu (cpu-pc cpu)))
+  (set-cpu-pc! cpu (+ (cpu-pc cpu) 1))
+  b)
+
+;; Fetch a little-endian 16-bit address (two bytes) and advance PC twice
+(define (fetch-addr! cpu)
+  (+ (fetch! cpu) (arithmetic-shift (fetch! cpu) 8)))
+
+
+;; ── 3. Flag & stack helpers ──────────────────────────────────────
+
+;; Update Z and N from result; optionally update C.
+;; carry? = #t  → set carry;  #f → clear carry;  'keep → leave carry unchanged
+(define (set-flags! cpu result [carry? 'keep])
+  (define r8 (bitwise-and result #xFF))
+  (set-cpu-zf! cpu (= r8 0))
+  (set-cpu-nf! cpu (= 1 (bitwise-and (arithmetic-shift r8 -7) 1)))
+  (unless (eq? carry? 'keep)
+    (set-cpu-cf! cpu (if carry? #t #f)))
+  r8)
+
+;; Full-descending stack: SP points one past the top element.
+(define (push! cpu val)
+  (set-cpu-sp! cpu (- (cpu-sp cpu) 1))
+  (mem-write! cpu (cpu-sp cpu) val))
+
+(define (pop! cpu)
+  (define v (mem-read cpu (cpu-sp cpu)))
+  (set-cpu-sp! cpu (+ (cpu-sp cpu) 1))
+  v)
+
+;; Push/pop a 16-bit address; hi byte is pushed first so lo sits on top.
+(define (push-addr! cpu addr)
+  (push! cpu (arithmetic-shift addr -8))
+  (push! cpu (bitwise-and addr #xFF)))
+
+(define (pop-addr! cpu)
+  (define lo (pop! cpu))
+  (define hi (pop! cpu))
+  (+ lo (arithmetic-shift hi 8)))
+
+
+;; ── 4. Opcode dispatch table ─────────────────────────────────────
+;;
+;; Maps opcode byte → (λ (cpu) ...) handler.
+;; Handlers are pure side-effects on the cpu struct.
+
+(define HANDLERS
+  (hash
+   ;; ── Load / Store ───────────────────────────────────────────────
+   #x00 (λ (c) (void))                                           ; NOP
+   #x01 (λ (c) (set-cpu-a! c (fetch! c)))                       ; LDI A, n
+   #x02 (λ (c) (set-cpu-b! c (fetch! c)))                       ; LDI B, n
+   #x03 (λ (c) (set-cpu-c! c (fetch! c)))                       ; LDI C, n
+   #x04 (λ (c) (set-cpu-a! c (mem-read c (fetch-addr! c))))     ; LDA addr
+   #x05 (λ (c) (set-cpu-b! c (mem-read c (fetch-addr! c))))     ; LDB addr
+   #x06 (λ (c) (set-cpu-c! c (mem-read c (fetch-addr! c))))     ; LDC addr
+   #x07 (λ (c) (mem-write! c (fetch-addr! c) (cpu-a c)))        ; STA addr
+   #x08 (λ (c) (mem-write! c (fetch-addr! c) (cpu-b c)))        ; STB addr
+   #x09 (λ (c) (mem-write! c (fetch-addr! c) (cpu-c c)))        ; STC addr
+
+   ;; ── Register moves ─────────────────────────────────────────────
+   #x10 (λ (c) (set-cpu-a! c (cpu-b c)))                        ; MOV A, B
+   #x11 (λ (c) (set-cpu-a! c (cpu-c c)))                        ; MOV A, C
+   #x12 (λ (c) (set-cpu-b! c (cpu-a c)))                        ; MOV B, A
+   #x13 (λ (c) (set-cpu-b! c (cpu-c c)))                        ; MOV B, C
+   #x14 (λ (c) (set-cpu-c! c (cpu-a c)))                        ; MOV C, A
+   #x15 (λ (c) (set-cpu-c! c (cpu-b c)))                        ; MOV C, B
+
+   ;; ── Arithmetic ─────────────────────────────────────────────────
+   #x20 (λ (c)                                                   ; ADD  A = A + B
+          (let ([r (+ (cpu-a c) (cpu-b c))])
+            (set-cpu-a! c (set-flags! c r (> r #xFF)))))
+   #x21 (λ (c)                                                   ; SUB  A = A - B
+          (let ([r (- (cpu-a c) (cpu-b c))])
+            (set-cpu-a! c (set-flags! c r (< r 0)))))
+   #x22 (λ (c)                                                   ; MUL  A = (A×B) & 0xFF
+          (set-cpu-a! c (set-flags! c (* (cpu-a c) (cpu-b c)) #f)))
+   #x23 (λ (c) (set-cpu-a! c (set-flags! c (+ (cpu-a c) 1)))) ; INC A
+   #x24 (λ (c) (set-cpu-b! c (set-flags! c (+ (cpu-b c) 1)))) ; INC B
+   #x25 (λ (c) (set-cpu-c! c (set-flags! c (+ (cpu-c c) 1)))) ; INC C
+   #x26 (λ (c) (set-cpu-a! c (set-flags! c (- (cpu-a c) 1)))) ; DEC A
+   #x27 (λ (c) (set-cpu-b! c (set-flags! c (- (cpu-b c) 1)))) ; DEC B
+   #x28 (λ (c) (set-cpu-c! c (set-flags! c (- (cpu-c c) 1)))) ; DEC C
+   #x29 (λ (c)                                                   ; ADI n   A = A + n
+          (let ([r (+ (cpu-a c) (fetch! c))])
+            (set-cpu-a! c (set-flags! c r (> r #xFF)))))
+
+   ;; ── Logic ──────────────────────────────────────────────────────
+   #x30 (λ (c) (set-cpu-a! c (set-flags! c (bitwise-and (cpu-a c) (cpu-b c)) #f))) ; AND
+   #x31 (λ (c) (set-cpu-a! c (set-flags! c (bitwise-ior (cpu-a c) (cpu-b c)) #f))) ; OR
+   #x32 (λ (c) (set-cpu-a! c (set-flags! c (bitwise-xor (cpu-a c) (cpu-b c)) #f))) ; XOR
+   #x33 (λ (c) (set-cpu-a! c (set-flags! c (bitwise-xor (cpu-a c) #xFF) #f)))      ; NOT A
+   #x34 (λ (c)                                                   ; SHL A  (carry ← bit 7)
+          (let ([a (cpu-a c)])
+            (set-cpu-cf! c (= 1 (arithmetic-shift a -7)))
+            (set-cpu-a!  c (set-flags! c (arithmetic-shift a 1)))))
+   #x35 (λ (c)                                                   ; SHR A  (carry ← bit 0)
+          (let ([a (cpu-a c)])
+            (set-cpu-cf! c (= 1 (bitwise-and a 1)))
+            (set-cpu-a!  c (set-flags! c (arithmetic-shift a -1)))))
+
+   ;; ── Compare (sets flags, discards result) ──────────────────────
+   #x40 (λ (c)                                                   ; CMP  A − B
+          (let ([r (- (cpu-a c) (cpu-b c))])
+            (set-flags! c r (< r 0))))
+   #x41 (λ (c)                                                   ; CMI n  A − n
+          (let* ([n (fetch! c)] [r (- (cpu-a c) n)])
+            (set-flags! c r (< r 0))))
+
+   ;; ── Jumps ──────────────────────────────────────────────────────
+   #x50 (λ (c) (set-cpu-pc! c (fetch-addr! c)))                 ; JMP addr
+   #x51 (λ (c) (let ([a (fetch-addr! c)])                       ; JZ   (Z=1)
+                 (when (cpu-zf c) (set-cpu-pc! c a))))
+   #x52 (λ (c) (let ([a (fetch-addr! c)])                       ; JNZ  (Z=0)
+                 (unless (cpu-zf c) (set-cpu-pc! c a))))
+   #x53 (λ (c) (let ([a (fetch-addr! c)])                       ; JC   (C=1)
+                 (when (cpu-cf c) (set-cpu-pc! c a))))
+   #x54 (λ (c) (let ([a (fetch-addr! c)])                       ; JN   (N=1)
+                 (when (cpu-nf c) (set-cpu-pc! c a))))
+   #x55 (λ (c) (let ([a (fetch-addr! c)])                       ; JGT  (!Z & !N)
+                 (when (and (not (cpu-zf c)) (not (cpu-nf c)))
+                   (set-cpu-pc! c a))))
+   #x56 (λ (c) (let ([a (fetch-addr! c)])                       ; JLT  (N=1)
+                 (when (cpu-nf c) (set-cpu-pc! c a))))
+
+   ;; ── Stack ──────────────────────────────────────────────────────
+   #x60 (λ (c) (push! c (cpu-a c)))                             ; PUSH A
+   #x61 (λ (c) (push! c (cpu-b c)))                             ; PUSH B
+   #x62 (λ (c) (push! c (cpu-c c)))                             ; PUSH C
+   #x63 (λ (c) (set-cpu-a! c (pop! c)))                         ; POP  A
+   #x64 (λ (c) (set-cpu-b! c (pop! c)))                         ; POP  B
+   #x65 (λ (c) (set-cpu-c! c (pop! c)))                         ; POP  C
+   #x66 (λ (c)                                                   ; CALL addr
+          (let ([a (fetch-addr! c)])
+            (push-addr! c (cpu-pc c))  ; push return address (PC already past operands)
+            (set-cpu-pc! c a)))
+   #x67 (λ (c) (set-cpu-pc! c (pop-addr! c)))                   ; RET
+
+   ;; ── I/O ────────────────────────────────────────────────────────
+   #x70 (λ (c) (printf "~a " (cpu-a c)))                        ; OUT  A  (decimal)
+   #x71 (λ (c) (printf "~a " (cpu-b c)))                        ; OUT  B
+   #x72 (λ (c) (printf "~a " (cpu-c c)))                        ; OUT  C
+   #x73 (λ (c) (display (integer->char (cpu-a c))))             ; OUTC A  (ASCII char)
+   #x74 (λ (c) (printf "#x~02x " (cpu-a c)))                   ; OUTX A  (hex)
+
+   ;; ── System ─────────────────────────────────────────────────────
+   #xFF (λ (c) (set-cpu-hlt! c #t))))                           ; HLT
+
+
+;; ── 5. Execution ─────────────────────────────────────────────────
+
+(define (cpu-step! c)
+  (unless (cpu-hlt c)
+    (define op (fetch! c))
+    (define h  (hash-ref HANDLERS op #f))
+    (unless h (error 'cpu "Unknown opcode #x~02x at PC=#x~03x" op (- (cpu-pc c) 1)))
+    (h c)
+    (set-cpu-cycles! c (+ (cpu-cycles c) 1))))
+
+(define (cpu-run! c [limit 500000])
+  (let loop ([n 0])
+    (cond
+      [(cpu-hlt c) (void)]
+      [(= n limit) (error 'cpu "Cycle limit ~a exceeded" limit)]
+      [else        (cpu-step! c) (loop (+ n 1))])))
+
+;; Step through with a printed trace (useful for debugging)
+(define (cpu-run-trace! c [limit 200])
+  (define (b v) (if v 1 0))
+  (let loop ([n 0])
+    (unless (or (cpu-hlt c) (= n limit))
+      (printf "  [~3a]  PC=#x~03x  A=~3a B=~3a C=~3a  SP=#x~03x  Z=~a C=~a N=~a  │ ~a\n"
+              n
+              (cpu-pc c)
+              (cpu-a c) (cpu-b c) (cpu-c c)
+              (cpu-sp c)
+              (b (cpu-zf c)) (b (cpu-cf c)) (b (cpu-nf c))
+              (disasm-at c (cpu-pc c)))
+      (cpu-step! c)
+      (loop (+ n 1)))))
+
+
+;; ── 6. Disassembler ──────────────────────────────────────────────
+
+(define OPCODE-NAMES
+  '#hash((#x00 . "NOP")
+         (#x01 . "LDI A") (#x02 . "LDI B") (#x03 . "LDI C")
+         (#x04 . "LDA")   (#x05 . "LDB")   (#x06 . "LDC")
+         (#x07 . "STA")   (#x08 . "STB")   (#x09 . "STC")
+         (#x10 . "MOV A,B") (#x11 . "MOV A,C") (#x12 . "MOV B,A")
+         (#x13 . "MOV B,C") (#x14 . "MOV C,A") (#x15 . "MOV C,B")
+         (#x20 . "ADD")   (#x21 . "SUB")   (#x22 . "MUL")
+         (#x23 . "INC A") (#x24 . "INC B") (#x25 . "INC C")
+         (#x26 . "DEC A") (#x27 . "DEC B") (#x28 . "DEC C")
+         (#x29 . "ADI")
+         (#x30 . "AND") (#x31 . "OR")  (#x32 . "XOR")
+         (#x33 . "NOT") (#x34 . "SHL") (#x35 . "SHR")
+         (#x40 . "CMP") (#x41 . "CMI")
+         (#x50 . "JMP") (#x51 . "JZ")  (#x52 . "JNZ")
+         (#x53 . "JC")  (#x54 . "JN")  (#x55 . "JGT") (#x56 . "JLT")
+         (#x60 . "PUSH A") (#x61 . "PUSH B") (#x62 . "PUSH C")
+         (#x63 . "POP A")  (#x64 . "POP B")  (#x65 . "POP C")
+         (#x66 . "CALL")   (#x67 . "RET")
+         (#x70 . "OUT A") (#x71 . "OUT B") (#x72 . "OUT C")
+         (#x73 . "OUTC A") (#x74 . "OUTX A")
+         (#xFF . "HLT")))
+
+(define OPCODE-WIDTHS              ; total instruction width in bytes
+  '#hash((#x00 . 1)
+         (#x01 . 2) (#x02 . 2) (#x03 . 2)
+         (#x04 . 3) (#x05 . 3) (#x06 . 3)
+         (#x07 . 3) (#x08 . 3) (#x09 . 3)
+         (#x10 . 1) (#x11 . 1) (#x12 . 1) (#x13 . 1) (#x14 . 1) (#x15 . 1)
+         (#x20 . 1) (#x21 . 1) (#x22 . 1)
+         (#x23 . 1) (#x24 . 1) (#x25 . 1)
+         (#x26 . 1) (#x27 . 1) (#x28 . 1)
+         (#x29 . 2)
+         (#x30 . 1) (#x31 . 1) (#x32 . 1) (#x33 . 1) (#x34 . 1) (#x35 . 1)
+         (#x40 . 1) (#x41 . 2)
+         (#x50 . 3) (#x51 . 3) (#x52 . 3) (#x53 . 3) (#x54 . 3) (#x55 . 3) (#x56 . 3)
+         (#x60 . 1) (#x61 . 1) (#x62 . 1)
+         (#x63 . 1) (#x64 . 1) (#x65 . 1)
+         (#x66 . 3) (#x67 . 1)
+         (#x70 . 1) (#x71 . 1) (#x72 . 1) (#x73 . 1) (#x74 . 1)
+         (#xFF . 1)))
+
+(define (disasm-at c addr)
+  (define op   (vector-ref (cpu-mem c) addr))
+  (define name (hash-ref OPCODE-NAMES  op (λ () (format "???#x~02x" op))))
+  (define wide (hash-ref OPCODE-WIDTHS op (λ () 1)))
+  (cond
+    [(= wide 1) name]
+    [(= wide 2) (format "~a  ~a"      name (vector-ref (cpu-mem c) (+ addr 1)))]
+    [(= wide 3) (let ([lo (vector-ref (cpu-mem c) (+ addr 1))]
+                      [hi (vector-ref (cpu-mem c) (+ addr 2))])
+                  (format "~a  #x~03x" name (+ lo (arithmetic-shift hi 8))))]))
+
+;; Print an annotated listing of the assembled bytes in memory
+(define (print-listing c [start 0] [end 63])
+  (printf "  ADDR   BYTES        DISASM\n")
+  (printf "  ─────  ──────────   ────────────────────\n")
+  (let loop ([addr start])
+    (when (<= addr end)
+      (define op   (vector-ref (cpu-mem c) addr))
+      (define wide (hash-ref OPCODE-WIDTHS op (λ () 1)))
+      (define bs   (for/list ([i (in-range wide)])
+                     (vector-ref (cpu-mem c) (+ addr i))))
+      (printf "~s  ~s ~s"
+              addr
+              (~a (string-join (map (λ (b) (~r b #:base 16 #:min-width 2 #:pad-string "0")) bs) " ")
+                  #:min-width 10)
+              (disasm-at c addr))
+      (loop (+ addr wide)))))
+
+
+;; ── 7. Assembler (two-pass) ──────────────────────────────────────
+;;
+;; Program source: a flat Racket list mixing instruction specs and labels.
+;;
+;;   Labels   — bare symbols not in INSTR-SYMS, e.g. `loop`, `done`
+;;   1-byte   — bare symbols: add sub mul ... hlt
+;;   2-byte   — lists with immediate operand: (ldi a 42) (cmi 0) (adi 5)
+;;   3-byte   — lists with address operand:   (sta 512)  (jmp loop) (call fact)
+;;
+;; Address operands may be a number or a label symbol.
+
+(define INSTR-SYMS   ; bare symbols that are 1-byte instructions
+  '(nop add sub mul and or xor not shl shr cmp ret hlt))
+
+(define (label-sym? x)
+  (and (symbol? x) (not (member x INSTR-SYMS))))
+
+(define (instr-size instr)
+  (cond
+    [(label-sym? instr)                      0]   ; labels occupy no bytes
+    [(and (symbol? instr)
+          (member instr INSTR-SYMS))          1]
+    [(list? instr)
+     (case (car instr)
+       [(ldi adi cmi)                         2]   ; opcode + 1-byte immediate
+       [(lda ldb ldc sta stb stc
+         jmp jz jnz jc jn jgt jlt call)       3]   ; opcode + 2-byte address
+       [(db)   (length (cdr instr))]               ; raw data bytes
+       [else                                  1])] ; all other list instrs: 1 byte
+    [else (error 'asm "Unrecognised form: ~a" instr)]))
+
+(define (to-byte n) (bitwise-and n #xFF))
+
+(define (resolve-addr a env)
+  (define v (if (symbol? a)
+                (hash-ref env a (λ () (error 'asm "Undefined label: ~a" a)))
+                a))
+  (list (bitwise-and v #xFF) (arithmetic-shift v -8)))   ; little-endian
+
+(define (encode instr env)
+  (match instr
+    ;; ── Bare-symbol 1-byte instructions ───────────────────────────
+    ['nop (list #x00)]  ['add (list #x20)]  ['sub (list #x21)]
+    ['mul (list #x22)]  ['and (list #x30)]  ['or  (list #x31)]
+    ['xor (list #x32)]  ['not (list #x33)]  ['shl (list #x34)]
+    ['shr (list #x35)]  ['cmp (list #x40)]  ['ret (list #x67)]
+    ['hlt (list #xFF)]
+
+    ;; ── Load immediate ─────────────────────────────────────────────
+    [`(ldi a ,n) (list #x01 (to-byte n))]
+    [`(ldi b ,n) (list #x02 (to-byte n))]
+    [`(ldi c ,n) (list #x03 (to-byte n))]
+
+    ;; ── Load from memory ───────────────────────────────────────────
+    [`(lda ,a) (cons #x04 (resolve-addr a env))]
+    [`(ldb ,a) (cons #x05 (resolve-addr a env))]
+    [`(ldc ,a) (cons #x06 (resolve-addr a env))]
+
+    ;; ── Store to memory ────────────────────────────────────────────
+    [`(sta ,a) (cons #x07 (resolve-addr a env))]
+    [`(stb ,a) (cons #x08 (resolve-addr a env))]
+    [`(stc ,a) (cons #x09 (resolve-addr a env))]
+
+    ;; ── Register moves ─────────────────────────────────────────────
+    [`(mov a b) (list #x10)] [`(mov a c) (list #x11)]
+    [`(mov b a) (list #x12)] [`(mov b c) (list #x13)]
+    [`(mov c a) (list #x14)] [`(mov c b) (list #x15)]
+
+    ;; ── Inc / Dec ──────────────────────────────────────────────────
+    [`(inc a) (list #x23)] [`(inc b) (list #x24)] [`(inc c) (list #x25)]
+    [`(dec a) (list #x26)] [`(dec b) (list #x27)] [`(dec c) (list #x28)]
+
+    ;; ── Immediate arithmetic & compare ────────────────────────────
+    [`(adi ,n) (list #x29 (to-byte n))]
+    [`(cmi ,n) (list #x41 (to-byte n))]
+
+    ;; ── Jumps ──────────────────────────────────────────────────────
+    [`(jmp ,a) (cons #x50 (resolve-addr a env))]
+    [`(jz  ,a) (cons #x51 (resolve-addr a env))]
+    [`(jnz ,a) (cons #x52 (resolve-addr a env))]
+    [`(jc  ,a) (cons #x53 (resolve-addr a env))]
+    [`(jn  ,a) (cons #x54 (resolve-addr a env))]
+    [`(jgt ,a) (cons #x55 (resolve-addr a env))]
+    [`(jlt ,a) (cons #x56 (resolve-addr a env))]
+
+    ;; ── Stack ──────────────────────────────────────────────────────
+    [`(push a) (list #x60)] [`(push b) (list #x61)] [`(push c) (list #x62)]
+    [`(pop  a) (list #x63)] [`(pop  b) (list #x64)] [`(pop  c) (list #x65)]
+    [`(call ,a) (cons #x66 (resolve-addr a env))]
+
+    ;; ── I/O ────────────────────────────────────────────────────────
+    [`(out  a) (list #x70)] [`(out  b) (list #x71)] [`(out  c) (list #x72)]
+    [`(outc a) (list #x73)]
+    [`(outx a) (list #x74)]
+
+    ;; ── Raw data bytes pseudo-op ───────────────────────────────────
+    [`(db ,bs ...) (map to-byte bs)]
+
+    [_ (error 'asm "Unknown instruction: ~a" instr)]))
+
+;; Two-pass assembler: returns a flat list of bytes.
+(define (assemble program [base 0])
+  ;; Pass 1 — walk the source counting bytes, recording label addresses
+  (define labels (make-hash))
+  (let loop ([items program] [addr base])
+    (unless (null? items)
+      (define item (car items))
+      (when (label-sym? item)
+        (hash-set! labels item addr))
+      (loop (cdr items) (+ addr (instr-size item)))))
+  ;; Pass 2 — emit bytes (labels produce empty lists, which append away)
+  (apply append
+         (map (λ (item)
+                (if (label-sym? item) '() (encode item labels)))
+              program)))
+
+
+;; ── 8. Convenience wrappers ──────────────────────────────────────
+
+(define (load-and-run prog [trace? #f])
+  (define c (make-cpu))
+  (mem-load! c (assemble prog))
+  (if trace? (cpu-run-trace! c) (cpu-run! c))
+  c)
+
+(define (print-cpu c)
+  (define (b v) (if v 1 0))
+  (printf "  A=~a  B=~a  C=~a  PC=#x~03x  SP=#x~03x  Z=~a C=~a N=~a  [~a cycles]\n"
+          (cpu-a c) (cpu-b c) (cpu-c c)
+          (cpu-pc c) (cpu-sp c)
+          (b (cpu-zf c)) (b (cpu-cf c)) (b (cpu-nf c))
+          (cpu-cycles c)))
+
+(define (dump-mem c [start #x200] [rows 4])
+  (for ([row (in-range rows)])
+    (define base (+ start (* row 16)))
+    (printf "  #x~03x │" base)
+    (for ([i (in-range 16)])
+      (printf " ~a" (~r (vector-ref (cpu-mem c) (+ base i)) #:min-width 3)))
+    (newline)))
+
+
+;; ── 9. Demo programs ─────────────────────────────────────────────
+;;
+;; Three self-contained programs loaded into address 0 and run.
+;; Labels are resolved automatically by the two-pass assembler.
+;; Memory scratch area starts at 0x200 (decimal 512).
+
+;; ─── Demo 1: Sum 1..10 ────────────────────────────────────────────
+;;
+;; Uses B as the counter (10 → 0) and mem[512] to accumulate the sum.
+;; DEC B conveniently sets Z=1 when it hits zero, so JNZ alone drives the loop.
+;;
+;;   Σ 1..10 = 55
+
+(define prog-sum
+  '(; Initialise
+    (ldi a 0)
+    (sta 512)      ; mem[512] = 0  (sum)
+    (ldi b 10)     ; B = 10        (counter)
+
+    ; Loop body
+    loop
+    (lda 512)      ; A = current sum
+    add            ; A = sum + B
+    (sta 512)      ; store back
+    (dec b)        ; B--; sets Z when B reaches 0
+    (jnz loop)     ; keep going while B ≠ 0
+
+    ; Output result
+    (lda 512)
+    (out a)
+    hlt))
+
+;; ─── Demo 2: Fibonacci (first 10 terms) ───────────────────────────
+;;
+;; Stores fib_a and fib_b in data memory; advances them each iteration.
+;; The update step uses C as a temporary:
+;;   new_b = fib_a + fib_b;  fib_a = fib_b;  fib_b = new_b
+;;
+;; Produces: 0 1 1 2 3 5 8 13 21 34
+
+(define prog-fib
+  '(; Initialise fib sequence and counter in data memory
+    (ldi a 0)  (sta 512)   ; mem[512] = fib_a = 0
+    (ldi a 1)  (sta 513)   ; mem[513] = fib_b = 1
+    (ldi a 10) (sta 514)   ; mem[514] = count = 10
+
+    ; Loop
+    loop
+    (lda 514)      ; A = count
+    (cmi 0)        ; A − 0: Z=1 when done
+    (jz done)
+    (dec a)
+    (sta 514)      ; count--
+
+    (lda 512)      ; A = fib_a
+    (out a)        ; print it
+
+    (ldb 513)      ; B = fib_b
+    add            ; A = fib_a + fib_b  (new fib_b)
+    (mov c a)      ; C = new_fib_b
+    (lda 513)      ; A = fib_b          (= new fib_a)
+    (sta 512)      ; fib_a = fib_b
+    (mov a c)      ; A = new_fib_b
+    (sta 513)      ; fib_b = fib_a + fib_b
+
+    (jmp loop)
+    done
+    hlt))
+
+;; ─── Demo 3: Factorials via recursive CALL/RET ────────────────────
+;;
+;; Computes and prints n! for n = 1..5.
+;;
+;; Subroutine `fact`:
+;;   Entry  A = n
+;;   Exit   A = n!
+;;   Uses   B (clobbered by POP B on the recursive path, but the
+;;            main loop's counter stays in sync — see comments)
+;;
+;; Recursion:  fact(n) = n × fact(n−1),  base: fact(n<2) = 1
+;;
+;; Output: 1 2 6 24 120
+
+(define prog-fact
+  '(; Main: loop B from 1 to 5, call fact each time
+    (ldi b 1)      ; B = loop counter (also the argument each iteration)
+
+    main-loop
+    (mov a b)      ; A = n
+    (call fact)    ; A = n!
+    (out a)        ; print n!
+    (inc b)        ; counter++
+    (mov a b)
+    (cmi 6)        ; stop after n=5
+    (jz main-done)
+    (jmp main-loop)
+
+    main-done
+    hlt
+
+    ;; ─ fact subroutine ──────────────────────────────────────────
+    ;; A = n on entry; A = n! on return.
+    ;; For n < 2: return 1 immediately (base case).
+    ;; For n ≥ 2: push n, recurse on n−1, pop n into B, multiply.
+    ;;
+    ;; Stack frame per call:
+    ;;   2 bytes  return address (pushed by CALL)
+    ;;   1 byte   saved n        (pushed by PUSH A)
+    ;; Depth for fact(5): 5 frames × 3 bytes = 15 bytes of stack.
+
+    fact
+    (cmi 2)        ; A − 2: N=1 when A ∈ {0,1}
+    (jn fact-base) ; n < 2 → base case
+    (push a)       ; save n on stack
+    (dec a)        ; A = n − 1
+    (call fact)    ; A = (n−1)!
+    (pop b)        ; B = n  (the value we saved)
+    mul            ; A = n! = n × (n−1)!
+    ret
+
+    fact-base
+    (ldi a 1)      ; n < 2: return 1
+    ret))
+
+
+;; ── 10. Run all demos ────────────────────────────────────────────
+
+(define (section title)
+  (newline)
+  (printf "══════════════════════════════════════════\n")
+  (printf "  ~a\n" title)
+  (printf "══════════════════════════════════════════\n"))
+
+;; ─ Demo 1 ────────────────────────────────────────────────────────
+(section "Demo 1 — Sum of 1..10")
+(printf "\nProgram listing:\n")
+(let ([c (make-cpu)])
+  (mem-load! c (assemble prog-sum))
+  (print-listing c 0 30))
+(printf "\nOutput: ")
+(define c1 (load-and-run prog-sum))
+(newline)
+(print-cpu c1)
+
+;; ─ Demo 2 ────────────────────────────────────────────────────────
+(section "Demo 2 — Fibonacci (first 10 terms)")
+(printf "\nOutput: ")
+(define c2 (load-and-run prog-fib))
+(newline)
+(print-cpu c2)
+(printf "\nData memory after run:\n")
+(dump-mem c2 #x200 1)   ; show mem[512..527] — fib_a, fib_b, count
+
+;; ─ Demo 3 ────────────────────────────────────────────────────────
+(section "Demo 3 — Factorials 1! to 5! (recursive subroutine)")
+(printf "\nProgram listing:\n")
+(let ([c (make-cpu)])
+  (mem-load! c (assemble prog-fact))
+  (print-listing c 0 40))
+(printf "\nOutput: ")
+(define c3 (load-and-run prog-fact))
+(newline)
+(print-cpu c3)
+
+;; ─ Bonus: trace the first 25 steps of Demo 3 ────────────────────
+(section "Bonus — Execution trace of Demo 3 (first 25 steps)")
+(newline)
+(let ([c (make-cpu)])
+  (mem-load! c (assemble prog-fact))
+  (cpu-run-trace! c 25))
