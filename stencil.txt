@@ -1,0 +1,97 @@
+program stencil_coarray
+  implicit none
+  integer, parameter :: rk = kind(1.0d0)
+
+  ! Global problem size
+  integer, parameter :: NX_global = 64
+  integer, parameter :: NY         = 64
+  integer, parameter :: NSTEPS     = 20
+
+  integer :: me, nimgs
+  integer :: nx_local, istart, iend
+  integer :: left, right
+  integer :: step
+
+  real(rk), allocatable :: u(:,:), unew(:,:)
+  real(rk), allocatable :: halo_left(:), halo_right(:)
+  real(rk), allocatable :: halo_left_buf(:), halo_right_buf(:)[:]
+
+  ! Image info
+  me    = this_image()
+  nimgs = num_images()
+
+  if (mod(NX_global, nimgs) /= 0) then
+     if (me == 1) print *, "NX_global must be divisible by num_images"
+     error stop
+  end if
+
+  ! Local domain size
+  nx_local = NX_global / nimgs
+  istart   = (me-1)*nx_local + 1
+  iend     = me*nx_local
+
+  ! Neighbor images (periodic)
+  left  = merge(me-1, nimgs, me > 1)
+  right = merge(me+1, 1,      me < nimgs)
+
+  ! Local arrays including halos in X
+  allocate(u(0:nx_local+1, NY))
+  allocate(unew(0:nx_local+1, NY))
+
+  ! Halo buffers (coarrays)
+  allocate(halo_left_buf(NY)[*])
+  allocate(halo_right_buf(NY)[*])
+
+  ! Initial condition
+  u = 0.0_rk
+  if (me == 1) then
+     u(nx_local/2, NY/2) = 1.0_rk   ! seed
+  end if
+
+  sync all
+
+  do step = 1, NSTEPS
+
+     !----------------------------------------------------
+     ! Pack halos
+     !----------------------------------------------------
+     halo_left_buf  = u(1, :)
+     halo_right_buf = u(nx_local, :)
+
+     sync memory
+
+     !----------------------------------------------------
+     ! One-sided halo exchange
+     !----------------------------------------------------
+     u(0, :)            = halo_right_buf(:)[left]
+     u(nx_local+1, :)   = halo_left_buf(:)[right]
+
+     sync memory
+     sync images([left, right])
+
+     !----------------------------------------------------
+     ! 5-point stencil update
+     !----------------------------------------------------
+     unew = u
+
+     unew(1:nx_local, 2:NY-1) = 0.25_rk * ( &
+          u(0:nx_local-1, 2:NY-1) + &
+          u(2:nx_local+1, 2:NY-1) + &
+          u(1:nx_local, 1:NY-2) + &
+          u(1:nx_local, 3:NY) )
+
+     ! Swap
+     u = unew
+
+     sync all
+  end do
+
+  !----------------------------------------------------
+  ! Simple check
+  !----------------------------------------------------
+  if (me == 1) then
+     print *, "Stencil finished after", NSTEPS, "steps"
+     print *, "Sample value:", u(nx_local/2, NY/2)
+  end if
+
+end program stencil_coarray
