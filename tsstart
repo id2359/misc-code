@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export TS_URI="${1:-${TS_URI:-druby://0.0.0.0:7640}}"
+
+echo "Starting Rinda tuple space on ${TS_URI}" >&2
+
+ruby <<'RUBY'
+require 'drb/drb'
+require 'rinda/tuplespace'
+require 'time'
+
+class InspectableTupleSpace < Rinda::TupleSpace
+  def all_entries
+    @bag.instance_variable_get(:@enum).map do |entry|
+      tuple_entry = entry.instance_variable_get(:@tuple)
+      {
+        'tuple' => tuple_entry.value,
+        'expires' => entry.instance_variable_get(:@expires)&.iso8601,
+        'cancelled' => entry.instance_variable_get(:@cancel)
+      }
+    end
+  end
+end
+
+uri = ENV.fetch('TS_URI')
+ts = InspectableTupleSpace.new
+DRb.start_service(uri, ts)
+DRb.thread.join
+RUBY
