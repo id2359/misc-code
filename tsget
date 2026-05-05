@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: tsget key" >&2
+  exit 1
+fi
+
+key=$1
+export TS_KEY="$key"
+export TS_URI="${TS_URI:-druby://127.0.0.1:7640}"
+export TS_TIMEOUT="${TS_TIMEOUT:-5}"
+
+ruby <<'RUBY'
+require 'drb/drb'
+require 'rinda/tuplespace'
+require 'timeout'
+
+uri = ENV.fetch('TS_URI')
+key = ENV.fetch('TS_KEY')
+timeout = Float(ENV.fetch('TS_TIMEOUT', '5'))
+
+DRb.start_service
+
+ts = Rinda::TupleSpaceProxy.new(DRbObject.new_with_uri(uri))
+begin
+  tuple = Timeout.timeout(timeout) { ts.read([:console, key, nil, nil]) }
+  puts tuple[2]
+rescue Timeout::Error
+  warn "tsget: key not found within #{timeout}s: #{key}"
+  exit 1
+rescue DRb::DRbConnError => e
+  warn "tsget: unable to connect to #{uri}: #{e.message}"
+  exit 1
+end
+RUBY
