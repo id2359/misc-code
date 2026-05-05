@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export TS_URI="${TS_URI:-druby://127.0.0.1:7640}"
+export TS_TIMEOUT="${TS_TIMEOUT:-5}"
+
+ruby <<'RUBY'
+require 'drb/drb'
+require 'rinda/tuplespace'
+require 'socket'
+require 'securerandom'
+
+uri = ENV.fetch('TS_URI')
+timeout = Float(ENV.fetch('TS_TIMEOUT', '5'))
+
+ip = Socket.ip_address_list
+  .select(&:ipv4?)
+  .reject(&:ipv4_loopback?)
+  .map(&:ip_address)
+  .find { |addr| addr && !addr.empty? } || '127.0.0.1'
+
+key = "__tsping__#{Process.pid}_#{SecureRandom.hex(4)}"
+value = Time.now.to_f.to_s
+
+DRb.start_service
+ts = Rinda::TupleSpaceProxy.new(DRbObject.new_with_uri(uri))
+
+started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+ts.write([:console, key, value, ip], timeout)
+tuple = ts.take([:console, key, value, ip], timeout)
+elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round(1)
+
+if tuple
+  puts "pong #{elapsed_ms}ms"
+else
+  warn 'ping failed'
+  exit 1
+end
+RUBY
