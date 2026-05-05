@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export TS_URI="${TS_URI:-druby://127.0.0.1:7640}"
+
+ruby <<'RUBY'
+require 'drb/drb'
+
+uri = ENV.fetch('TS_URI')
+
+DRb.start_service
+
+ts = DRbObject.new_with_uri(uri)
+
+begin
+  entries = ts.all_entries
+rescue NoMethodError
+  warn 'tsprint: tuplespace does not support all_entries; restart it with the current tsstart'
+  exit 1
+rescue DRb::DRbConnError => e
+  warn "tsprint: unable to connect to #{uri}: #{e.message}"
+  exit 1
+end
+
+entries.sort_by! { |entry| Array(entry['tuple']).map(&:to_s).join("\0") }
+
+if entries.empty?
+  puts "(empty)"
+  exit 0
+end
+
+entries.each do |entry|
+  puts entry['tuple'].inspect
+  puts "  expires:   #{entry['expires'] || 'nil'}"
+  puts "  cancelled: #{entry['cancelled']}"
+end
+RUBY
