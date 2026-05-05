@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 2 ]]; then
+  echo "Usage: tsput key value" >&2
+  exit 1
+fi
+
+key=$1
+value=$2
+export TS_KEY="$key"
+export TS_VALUE="$value"
+export TS_URI="${TS_URI:-druby://127.0.0.1:7640}"
+export TS_TIMEOUT="${TS_TIMEOUT:-5}"
+
+ruby <<'RUBY'
+require 'drb/drb'
+require 'rinda/tuplespace'
+require 'socket'
+
+uri = ENV.fetch('TS_URI')
+timeout = Float(ENV.fetch('TS_TIMEOUT', '5'))
+key = ENV.fetch('TS_KEY')
+value = ENV.fetch('TS_VALUE')
+
+ip = Socket.ip_address_list
+  .select(&:ipv4?)
+  .reject(&:ipv4_loopback?)
+  .map(&:ip_address)
+  .find { |addr| addr && !addr.empty? } || '127.0.0.1'
+
+DRb.start_service
+
+ts = Rinda::TupleSpaceProxy.new(DRbObject.new_with_uri(uri))
+ts.write([:console, key, value, ip], timeout)
+RUBY
