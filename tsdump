@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+key=${1:-}
+export TS_KEY_FILTER="$key"
+export TS_URI="${TS_URI:-druby://127.0.0.1:7640}"
+
+ruby <<'RUBY'
+require 'drb/drb'
+require 'rinda/tuplespace'
+require 'pp'
+
+uri = ENV.fetch('TS_URI')
+key_filter = ENV.fetch('TS_KEY_FILTER', '')
+
+DRb.start_service
+
+ts = Rinda::TupleSpaceProxy.new(DRbObject.new_with_uri(uri))
+pattern = [:console, nil, nil, nil]
+entries = ts.read_all(pattern)
+entries.select! { |tuple| tuple[1] == key_filter } unless key_filter.empty?
+entries.sort_by! { |tuple| tuple[1].to_s }
+entries.each { |tuple| puts tuple.inspect }
+RUBY
