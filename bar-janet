@@ -1,0 +1,82 @@
+#!/usr/bin/env janet
+(use spork/ev)
+
+# ---------------- config -----------------
+(def +n-drinkers+  5)          # patrons at tables
+(def +bar-cap+     3)          # stools at bar
+(def +beer-cask+   20)         # initial stock
+(def +truck-load+  15)         # how much driver brings
+
+# ---------------- channels ---------------
+(def orders   (ev/chan +bar-cap+))      # patrons -> bar
+(def pickups  (ev/chan +bar-cap+))      # bar -> patrons (glasses)
+(def delivery (ev/chan 1))              # driver -> cellar
+(def pay      (ev/chan 1))              # patron -> bar (cash)
+
+# ----------------- state -----------------
+(var *stock* +beer-cask+)                # pints left in cellar
+(var *glasses* 10)                       # clean glasses on shelf
+(var *cash* 0)                           # till
+
+# --------------- helpers -----------------
+(defn log [who msg]
+  (printf "[%8.3f] %-8s %s" (ev/now) who msg))
+
+# --------------- processes ---------------
+
+# DRIVER -----------------------------------------------------------------
+(defn driver []
+  (loop [n 1]
+    (os/sleep (rand-int 8))               # drive to brewery
+    (log :driver "arrives with new cask")
+    (ev/give delivery +truck-load+)       # unload into cellar
+    (log :driver "delivery complete")))
+
+# BAR-TENDER -------------------------------------------------------------
+(defn bar-tender []
+  (loop []
+    (match (ev/select orders delivery)
+      [:readable orders patron]
+      (do (log :bar (string "order from " patron))
+          (if (and (> *stock* 0) (> *glasses* 0))
+            (do (os/sleep 0.3)                    # pull pint
+                (-- *stock*)
+                (-- *glasses*)
+                (ev/give pickups patron)
+                (log :bar (string "served " patron
+                                   "  (stock " *stock* ")")))
+            (do (log :bar "sorry, out of beer or glasses")
+                (ev/give pickups nil))))          # send empty glass = sorry
+
+      [:readable delivery qty]
+      (do (+= *stock* qty)
+          (log :bar (string "accepted delivery, stock now " *stock*))))))
+
+# DRINKER ----------------------------------------------------------------
+(defn drinker [id]
+  (loop [thirst 3]                       # drinker wants 3 pints tonight
+    (when (> thirst 0)
+      (os/sleep (+ 1 (rand-int 4)))      # sit, chat, get thirsty
+      (log id "walks to bar")
+      (ev/give orders id)                # place order
+      (match (ev/take pickups)
+        nil (do (log id "grumbles and goes back to table")
+                (os/sleep 2))              # wait before retry
+        _   (do (log id "enjoys a pint")
+                (ev/give pay 3)            # pay 3 coins
+                (+= *cash* 3)
+                (-- thirst))))
+    (log id "leaves bar happy")))
+
+# ------------------------------------------------------------------------
+# top-level supervisor
+# ------------------------------------------------------------------------
+(ev/spawn-driver)   # start driver fiber
+(ev/spawn bar-tender)
+
+(loop [i :range +n-drinkers+]
+  (ev/spawn (drinker (symbol (string "drinker-" i)))))
+
+# let the evening unfold for 30 simulated seconds
+(os/sleep 30)
+(printf "\nTill contains %d coins, stock left %d pints\n" *cash* *stock*)
