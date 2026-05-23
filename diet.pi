@@ -1,0 +1,105 @@
+import cp.
+
+% Diet optimisation with integer servings.
+% Objective: minimise cost while meeting nutrition targets as well as possible.
+%
+% You model "soft" nutrition constraints by allowing deficits and penalising them.
+
+main =>
+    % ----------------------------
+    % DATA (EDIT THESE)
+    % ----------------------------
+
+    % Items (foods). Each integer X[i] is servings of item i.
+    Items = ["oats","milk","eggs","chicken","rice","beans","broccoli","olive_oil"],
+
+    N = Items.length,
+
+    % Per-serving cost in cents
+    Cost = [80, 60, 50, 250, 40, 90, 70, 30],
+
+    % Per-serving nutrition (units are up to you, but keep consistent)
+    % Macros: protein(g), carbs(g), fat(g)
+    Prot = [10, 8, 6, 31, 4, 9, 3, 0],
+    Carb = [54, 12, 1,  0, 45, 20, 6, 0],
+    Fat  = [ 6, 4, 5,  4,  1,  1, 0, 3],
+
+    % Calories (kcal)
+    Cal  = [300, 120, 80, 165, 200, 120, 35, 27],
+
+    % Daily targets (minimums)
+    TargetProt = 120,
+    TargetCarb = 150,
+    TargetFat  = 40,
+    TargetCalMin = 1800,
+    TargetCalMax = 2200,
+
+    % Serving bounds (edit: max servings per day for each food)
+    MaxServ = [3, 4, 6, 3, 4, 4, 6, 6],
+
+    % Penalty weight: how many cents per unit of deficit.
+    % Bigger => meeting targets matters more than cost.
+    PenaltyWeight = 50,
+
+    % ----------------------------
+    % DECISION VARIABLES
+    % ----------------------------
+    X = new_list(N),
+    foreach(I in 1..N)
+        X[I] :: 0..MaxServ[I]
+    end,
+
+    % ----------------------------
+    % TOTALS
+    % ----------------------------
+    TotalCost #= sum([X[I]*Cost[I] : I in 1..N]),
+
+    TotalProt #= sum([X[I]*Prot[I] : I in 1..N]),
+    TotalCarb #= sum([X[I]*Carb[I] : I in 1..N]),
+    TotalFat  #= sum([X[I]*Fat[I]  : I in 1..N]),
+    TotalCal  #= sum([X[I]*Cal[I]  : I in 1..N]),
+
+    % ----------------------------
+    % HARD CONSTRAINTS
+    % ----------------------------
+    TotalCal #>= TargetCalMin,
+    TotalCal #=< TargetCalMax,
+
+    % ----------------------------
+    % SOFT NUTRITION TARGETS (deficits allowed but penalised)
+    % deficit = max(0, target - achieved)
+    % For CP with integers: Def >= target-achieved and Def >= 0; minimise Def.
+    % ----------------------------
+    DefProt :: 0..10000,
+    DefCarb :: 0..10000,
+    DefFat  :: 0..10000,
+
+    DefProt #>= TargetProt - TotalProt,
+    DefCarb #>= TargetCarb - TotalCarb,
+    DefFat  #>= TargetFat  - TotalFat,
+
+    TotalDef #= DefProt + DefCarb + DefFat,
+
+    Obj #= TotalCost + PenaltyWeight * TotalDef,
+
+    % ----------------------------
+    % SOLVE (MINIMISE)
+    % ----------------------------
+    solve($[min(Obj)], X),
+
+    % ----------------------------
+    % OUTPUT
+    % ----------------------------
+    println("Chosen servings:"),
+    foreach(I in 1..N)
+        if X[I] > 0 then
+            printf("%w: %d\n", Items[I], X[I])
+        end
+    end,
+
+    nl,
+    printf("TotalCost(cents): %d\n", TotalCost),
+    printf("Calories: %d\n", TotalCal),
+    printf("Protein/Carb/Fat: %d / %d / %d\n", TotalProt, TotalCarb, TotalFat),
+    printf("Deficits (P/C/F): %d / %d / %d (TotalDef=%d)\n", DefProt, DefCarb, DefFat, TotalDef),
+    printf("Objective: %d\n", Obj).
