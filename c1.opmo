@@ -1,0 +1,98 @@
+;;;---------------------------------------------------------
+;;; c1 - Glasshouse Sketch
+;;; Chamber music for violin, clarinet, and violoncello
+;;;---------------------------------------------------------
+
+(setf c1-lengths
+      '(q q q q q q q q q q q q q q q q))
+
+(setf c1-vel-a
+      '(mp mp mf mf mp mp mf f mp mp mf mf mp mp mp mf))
+
+(setf c1-vel-b
+      '(p mp mp mf p mp mp mf p mp mp mf p mp mp mf))
+
+(setf c1-vln-pitch-a
+      '(g5 a5 b5 d6 c6 b5 a5 g5 e5 g5 a5 c6 b5 a5 g5 fs5))
+
+(setf c1-cl-pitch-a
+      '(d5 e5 g5 a5 b5 a5 g5 e5 d5 fs5 a5 b5 a5 g5 fs5 e5))
+
+(setf c1-vc-pitch-a
+      '(g2 d3 e3 b2 c3 g2 d3 a2 g2 d3 e3 fs2 g2 d3 c3 d3))
+
+(setf c1-vln-a
+      (ambitus '(g4 e6)
+               (make-omn
+                :length c1-lengths
+                :pitch c1-vln-pitch-a
+                :velocity c1-vel-a)))
+
+(setf c1-cl-a
+      (ambitus '(d4 c6)
+               (make-omn
+                :length c1-lengths
+                :pitch c1-cl-pitch-a
+                :velocity c1-vel-b)))
+
+(setf c1-vc-a
+      (ambitus '(c2 g3)
+               (make-omn
+                :length c1-lengths
+                :pitch c1-vc-pitch-a
+                :velocity '(mp mp p mp mp p mp mf mp mp p mp mp p mp mf))))
+
+(setf c1-vln-b (pitch-transpose 2 c1-vln-a))
+(setf c1-cl-b (pitch-transpose -2 c1-cl-a))
+(setf c1-vc-b (pitch-transpose 5 c1-vc-a))
+
+(setf c1-vln-c (pitch-transpose -1 c1-vln-a))
+(setf c1-cl-c (pitch-transpose 3 c1-cl-a))
+(setf c1-vc-c (pitch-transpose -5 c1-vc-a))
+
+(setf violin
+      (assemble-seq c1-vln-a c1-vln-b c1-vln-c))
+
+(setf clarinet
+      (assemble-seq c1-cl-a c1-cl-b c1-cl-c))
+
+(setf violoncello
+      (assemble-seq c1-vc-a c1-vc-b c1-vc-c))
+
+(def-score c1
+    (:title "Glasshouse Sketch"
+     :composer "Orac"
+     :key-signature '(g maj)
+     :time-signature '(4 4)
+     :tempo 88
+     :layout (list
+              (violin-layout 'violin)
+              (clarinet-layout 'clarinet)
+              (violoncello-layout 'violoncello)))
+
+  (violin
+   :omn violin
+   :channel 1
+   :sound 'gm
+   :program 'violin
+   :volume 100
+   :pan 30
+   :controllers (91 '(44)))
+
+  (clarinet
+   :omn clarinet
+   :channel 2
+   :sound 'gm
+   :program 'clarinet
+   :volume 96
+   :pan 64
+   :controllers (91 '(42)))
+
+  (violoncello
+   :omn violoncello
+   :channel 3
+   :sound 'gm
+   :program 'cello
+   :volume 102
+   :pan 98
+   :controllers (91 '(40))))
