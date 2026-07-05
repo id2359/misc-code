@@ -1,0 +1,84 @@
+;;;---------------------------------------------------------
+;;; c3 - Little Machine Fugue
+;;; Four-voice keyboard fugue
+;;;---------------------------------------------------------
+
+(setf c3-subject-lengths
+      '(q q q q q q q q))
+
+(setf c3-subject-pitch
+      '(d4 a4 f4 g4 a4 d5 c5 bb4))
+
+(setf c3-counter-pitch
+      '(f4 e4 d4 c4 d4 f4 g4 a4))
+
+(setf c3-episode-pitch
+      '(a4 g4 f4 e4 d4 e4 f4 g4))
+
+(setf c3-cadence-pitch
+      '(bb4 a4 g4 f4 e4 f4 g4 d4))
+
+(setf c3-subject
+      (make-omn
+       :length c3-subject-lengths
+       :pitch c3-subject-pitch
+       :velocity '(mf mf mp mp mf mf mp mp)))
+
+(setf c3-answer (pitch-transpose 7 c3-subject))
+
+(setf c3-counter
+      (make-omn
+       :length c3-subject-lengths
+       :pitch c3-counter-pitch
+       :velocity '(mp mp mp mp mp mp mp mp)))
+
+(setf c3-episode
+      (make-omn
+       :length c3-subject-lengths
+       :pitch c3-episode-pitch
+       :velocity '(mp mp mp mp mp mp mp mp)))
+
+(setf c3-cadence
+      (make-omn
+       :length c3-subject-lengths
+       :pitch c3-cadence-pitch
+       :velocity '(mf mp mp mp mp mp mf f)))
+
+(setf c3-rest-2bars
+      (length-span (gen-repeat 2 '(4/4)) '(-q)))
+
+(setf c3-rest-4bars
+      (length-span (gen-repeat 4 '(4/4)) '(-q)))
+
+(setf c3-rest-6bars
+      (length-span (gen-repeat 6 '(4/4)) '(-q)))
+
+(setf rh1
+      (ambitus '(d4 g5)
+               (assemble-seq c3-subject c3-counter c3-episode c3-cadence)))
+
+(setf rh2
+      (ambitus '(a3 d5)
+               (assemble-seq c3-rest-2bars c3-answer c3-counter (pitch-transpose -2 c3-cadence))))
+
+(setf lh1
+      (ambitus '(d3 a4)
+               (assemble-seq c3-rest-4bars (pitch-transpose -12 c3-subject) (pitch-transpose -12 c3-episode))))
+
+(setf lh2
+      (ambitus '(d2 d4)
+               (assemble-seq c3-rest-6bars (pitch-transpose -12 c3-answer))))
+
+(def-score c3
+    (:title "Little Machine Fugue"
+     :composer "Orac"
+     :key-signature '(d min)
+     :time-signature '(4 4)
+     :tempo 96
+     :ignore-velocity t
+     :layout (piano-solo-layout '(rh1 rh2) '(lh1 lh2)))
+
+  (rh1 :omn rh1 :channel 1 :sound 'gm :program 0)
+  (rh2 :omn rh2)
+  (lh1 :omn lh1)
+  (lh2 :omn lh2))
