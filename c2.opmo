@@ -1,0 +1,68 @@
+;;;---------------------------------------------------------
+;;; c2 - Night Air
+;;; Ambient piano piece
+;;;---------------------------------------------------------
+
+(setf c2-rh-lengths
+      '(h h h h h h h h h h h h h h h h))
+
+(setf c2-rh-pitch
+      '(d5 a5 e5 b5 g5 d6 a5 e6 c6 g5 d6 a5 f5 c6 g5 d6))
+
+(setf c2-rh-vel
+      '(pp p pp p pp p mp p pp p pp p pp p mp p))
+
+(setf c2-lh-lengths
+      '(w w w w w w w w))
+
+(setf c2-lh-pitch
+      '(d2 g2 b1 f2 d2 a1 g1 d2))
+
+(setf c2-lh-vel
+      '(pp pp p pp pp p pp p))
+
+(setf c2-rh-a
+      (ambitus '(c5 e6)
+               (make-omn
+                :length c2-rh-lengths
+                :pitch c2-rh-pitch
+                :velocity c2-rh-vel)))
+
+(setf c2-rh-b (pitch-transpose -2 c2-rh-a))
+(setf c2-rh (assemble-seq c2-rh-a c2-rh-b))
+
+(setf c2-lh-a
+      (ambitus '(d1 c3)
+               (make-omn
+                :length c2-lh-lengths
+                :pitch c2-lh-pitch
+                :velocity c2-lh-vel)))
+
+(setf c2-lh-b (pitch-transpose -5 c2-lh-a))
+(setf c2-lh (assemble-seq c2-lh-a c2-lh-b))
+
+(def-score c2
+    (:title "Night Air"
+     :composer "Orac"
+     :key-signature 'atonal
+     :time-signature '(4 4)
+     :tempo 52
+     :layout (piano-layout 'piano-rh 'piano-lh))
+
+  (piano-rh
+   :omn c2-rh
+   :channel 1
+   :sound 'gm
+   :program 'acoustic-grand-piano
+   :volume 94
+   :pan 58
+   :controllers (91 '(78)))
+
+  (piano-lh
+   :omn c2-lh
+   :channel 2
+   :sound 'gm
+   :program 'acoustic-grand-piano
+   :volume 82
+   :pan 70
+   :controllers (91 '(82))))
