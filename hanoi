@@ -1,0 +1,41 @@
+#!/usr/bin/env runhaskell
+
+import System.Environment (getArgs)
+import System.Exit (exitFailure)
+import Text.Read (readMaybe)
+
+-- | Move n disks from source to destination using auxiliary peg
+hanoi :: Int -> String -> String -> String -> [(String, String)]
+hanoi 0 _ _ _ = []
+hanoi n source dest aux = 
+    hanoi (n-1) source aux dest ++
+    [(source, dest)] ++
+    hanoi (n-1) aux dest source
+
+-- | Print the solution steps
+printSolution :: [(String, String)] -> IO ()
+printSolution moves = do
+    mapM_ printMove (zip [1..] moves)
+    putStrLn $ "\nTotal moves: " ++ show (length moves)
+  where
+    printMove (i, (from, to)) = 
+        putStrLn $ "Move " ++ show i ++ ": " ++ from ++ " -> " ++ to
+
+main :: IO ()
+main = do
+    args <- getArgs
+    case args of
+        [nStr] -> case readMaybe nStr :: Maybe Int of
+            Just n | n > 0 -> do
+                putStrLn $ "Solving Towers of Hanoi for " ++ show n ++ " disks:\n"
+                let solution = hanoi n "A" "C" "B"
+                printSolution solution
+            Just _ -> do
+                putStrLn "Error: Number of disks must be positive"
+                exitFailure
+            Nothing -> do
+                putStrLn "Error: Invalid number"
+                exitFailure
+        _ -> do
+            putStrLn "Usage: hanoi.hs <number_of_disks>"
+            exitFailure
