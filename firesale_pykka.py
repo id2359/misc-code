@@ -424,4 +424,4 @@ if __name__ == "__main__":
     # Epsilon (4% leverage) breaches its buffer immediately and starts
     # to delever.  Its sales push prices down a touch more, dragging
     # Delta (4.5%) below buffer too.  And so on.
-    run_simulation(steps=12, shock_asset="govies", shock_size=0.05)
+    run_simulation(steps=12, shock_asset="govies", shock_size=0.02)
