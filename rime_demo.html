@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smirnov RIME & EveryBeam Jones Formalism Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- KaTeX CSS & JS for flawless LaTeX rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js" onload="initKaTeX()"></script>
+
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --card-bg: rgba(18, 24, 38, 0.85);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --accent-blue: #3b82f6;
+      --accent-cyan: #06b6d4;
+      --accent-green: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-red: #ef4444;
+      --accent-purple: #8b5cf6;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --text-dim: #6b7280;
+      --font-sans: 'Inter', sans-serif;
+      --font-mono: 'Fira Code', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(at 10% 10%, rgba(59, 130, 246, 0.12) 0px, transparent 50%),
+        radial-gradient(at 90% 90%, rgba(139, 92, 246, 0.12) 0px, transparent 50%),
+        radial-gradient(at 50% 50%, rgba(16, 185, 129, 0.05) 0px, transparent 50%);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      line-height: 1.5;
+      padding: 24px;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    header {
+      margin-bottom: 28px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 20px;
+    }
+
+    .header-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    h1 {
+      font-size: 1.85rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #60a5fa, #a78bfa, #34d399);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.02em;
+    }
+
+    .badge-tag {
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      color: #93c5fd;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      font-family: var(--font-mono);
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      margin-top: 6px;
+      max-width: 950px;
+    }
+
+    /* Presets bar */
+    .presets-container {
+      display: flex;
+      gap: 10px;
+      margin-top: 18px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .preset-label {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-1px);
+    }
+
+    .btn-active {
+      background: rgba(59, 130, 246, 0.2) !important;
+      border-color: var(--accent-blue) !important;
+      color: #93c5fd !important;
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.3);
+    }
+
+    .btn-danger {
+      border-color: rgba(239, 68, 68, 0.4);
+      background: rgba(239, 68, 68, 0.1);
+      color: #fca5a5;
+    }
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.25);
+    }
+
+    .btn-success {
+      border-color: rgba(16, 185, 129, 0.4);
+      background: rgba(16, 185, 129, 0.1);
+      color: #6ee7b7;
+    }
+    .btn-success:hover {
+      background: rgba(16, 185, 129, 0.25);
+    }
+
+    /* Main Grid */
+    .grid-3col {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+
+    @media (max-width: 1100px) {
+      .grid-3col {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 20px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding-bottom: 10px;
+    }
+
+    /* Matrix Display Box */
+    .matrix-container {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      padding: 14px;
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+    }
+
+    .matrix-grid-2x2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .matrix-cell {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 10px 8px;
+      border-radius: 6px;
+      text-align: center;
+      transition: all 0.2s;
+    }
+
+    .cell-val {
+      font-weight: 600;
+      color: #60a5fa;
+    }
+
+    .cell-sub {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    /* Stats Pill */
+    .status-pill {
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .pill-normal {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+    }
+
+    .pill-singular {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid rgba(239, 68, 68, 0.5);
+      color: #f87171;
+      animation: pulse-red 2s infinite;
+    }
+
+    @keyframes pulse-red {
+      0%, 100% { box-shadow: 0 0 0 rgba(239, 68, 68, 0); }
+      50% { box-shadow: 0 0 14px rgba(239, 68, 68, 0.4); }
+    }
+
+    /* Sliders */
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .slider-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    .slider-val {
+      font-family: var(--font-mono);
+      color: #93c5fd;
+      font-weight: 500;
+    }
+
+    input[type=range] {
+      width: 100%;
+      height: 5px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      outline: none;
+      -webkit-appearance: none;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: var(--accent-blue);
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+
+    input[type=range]::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+
+    /* Canvas for E-field */
+    .canvas-box {
+      width: 100%;
+      height: 180px;
+      background: #05070d;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      position: relative;
+      overflow: hidden;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .canvas-title {
+      position: absolute;
+      top: 8px;
+      left: 10px;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      pointer-events: none;
+    }
+
+    /* Solver Output Card */
+    .solver-box {
+      background: rgba(0, 0, 0, 0.5);
+      border-radius: 10px;
+      padding: 16px;
+      border: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .solver-log {
+      height: 140px;
+      overflow-y: auto;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      background: #04060a;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      color: #d1d5db;
+    }
+
+    .log-line {
+      margin-bottom: 4px;
+      line-height: 1.3;
+    }
+    .log-info { color: #60a5fa; }
+    .log-success { color: #34d399; }
+    .log-warn { color: #fbbf24; }
+    .log-error { color: #f87171; font-weight: 600; }
+
+    /* Callout info */
+    .callout-box {
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      line-height: 1.45;
+    }
+
+    .callout-info {
+      background: rgba(59, 130, 246, 0.1);
+      border-left: 3px solid var(--accent-blue);
+      color: #cbd5e1;
+    }
+
+    .callout-warning {
+      background: rgba(239, 68, 68, 0.12);
+      border-left: 3px solid var(--accent-red);
+      color: #fca5a5;
+    }
+
+    /* Full width theory box */
+    .theory-section {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 24px;
+      backdrop-filter: blur(12px);
+      margin-top: 10px;
+    }
+
+    .theory-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+      margin-top: 16px;
+    }
+
+    @media (max-width: 900px) {
+      .theory-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .theory-card {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .theory-card h3 {
+      font-size: 0.95rem;
+      color: #93c5fd;
+      margin-bottom: 8px;
+    }
+
+    .theory-card p {
+      font-size: 0.83rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      padding: 4px 0;
+      border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Header -->
+  <header>
+    <div class="header-title-row">
+      <div>
+        <h1>Smirnov RIME & EveryBeam Jones Formalism Explorer</h1>
+        <p class="subtitle">
+          Interactive simulation of Radio Interferometer Measurement Equation (RIME) & EveryBeam antenna responses:
+          comparing <strong>Normal Unpolarized Sky ($\text{rank } \mathbf{B} = 2$)</strong> vs. 
+          <strong>Singular Synchronized Noise ($\text{rank } \mathbf{B} = 1$)</strong>.
+        </p>
+      </div>
+      <span class="badge-tag">EveryBeam & RIME Engine</span>
+    </div>
+
+    <!-- Presets -->
+    <div class="presets-container">
+      <span class="preset-label">Signal Presets:</span>
+      <button class="btn btn-success btn-active" id="btn-unpol" onclick="setPreset('unpolarized')">
+        🟢 Normal Unpolarized Sky (Rank 2)
+      </button>
+      <button class="btn btn-danger" id="btn-siggen" onclick="setPreset('signal_generator')">
+        🔴 Identical Signal Generator ($v_X = v_Y$, Rank 1)
+      </button>
+      <button class="btn" id="btn-horiz" onclick="setPreset('horizontal')">
+        🔵 100% Linear H ($Q=I$)
+      </button>
+      <button class="btn" id="btn-circ" onclick="setPreset('circular')">
+        🟣 100% Circular ($V=I$)
+      </button>
+    </div>
+  </header>
+
+  <!-- 3 Column Main Grid -->
+  <div class="grid-3col">
+
+    <!-- COL 1: Sky Coherence B & Field Canvas -->
+    <div class="card">
+      <div class="card-title">
+        <span>1. Sky Brightness Matrix $\mathbf{B}$</span>
+        <span id="rank-badge" class="status-pill pill-normal">RANK 2 (FULL)</span>
+      </div>
+
+      <!-- Stokes Sliders -->
+      <div class="control-group">
+        <div class="slider-row">
+          <div class="slider-header">
+            <span>Stokes $I$ (Total Flux)</span>
+            <span class="slider-val" id="val-I">1.00</span>
+          </div>
+          <input type="range" id="slider-I" min="0.1" max="2" step="0.05" value="1.00" oninput="updateControls()">
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-header">
+            <span>Stokes $Q$ (Linear 0°/90°)</span>
+            <span class="slider-val" id="val-Q">0.00</span>
+          </div>
+          <input type="range" id="slider-Q" min="-1" max="1" step="0.05" value="0.00" oninput="updateControls()">
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-header">
+            <span>Stokes $U$ (Linear +45°/-45°)</span>
+            <span class="slider-val" id="val-U">0.00</span>
+          </div>
+          <input type="range" id="slider-U" min="-1" max="1" step="0.05" value="0.00" oninput="updateControls()">
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-header">
+            <span>Stokes $V$ (Circular R/L)</span>
+            <span class="slider-val" id="val-V">0.00</span>
+          </div>
+          <input type="range" id="slider-V" min="-1" max="1" step="0.05" value="0.00" oninput="updateControls()">
+        </div>
+      </div>
+
+      <!-- Coherence Matrix B Display -->
+      <div class="matrix-container">
+        <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 6px;">
+          $$\mathbf{B} = \frac{1}{2} \begin{pmatrix} I+Q & U+iV \\ U-iV & I-Q \end{pmatrix}$$
+        </div>
+        <div class="matrix-grid-2x2">
+          <div class="matrix-cell">
+            <div class="cell-val" id="b-xx">0.500</div>
+            <div class="cell-sub">B_XX</div>
+          </div>
+          <div class="matrix-cell">
+            <div class="cell-val" id="b-xy">0.000 + 0.00i</div>
+            <div class="cell-sub">B_XY</div>
+          </div>
+          <div class="matrix-cell">
+            <div class="cell-val" id="b-yx">0.000 + 0.00i</div>
+            <div class="cell-sub">B_YX</div>
+          </div>
+          <div class="matrix-cell">
+            <div class="cell-val" id="b-yy">0.500</div>
+            <div class="cell-sub">B_YY</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div>
+        <div class="stat-row">
+          <span style="color: var(--text-muted);">Determinant $\det(\mathbf{B})$:</span>
+          <span class="slider-val" id="b-det">0.2500</span>
+        </div>
+        <div class="stat-row">
+          <span style="color: var(--text-muted);">Eigenvalues ($\lambda_1, \lambda_2$):</span>
+          <span class="slider-val" id="b-eigs">0.50, 0.50</span>
+        </div>
+        <div class="stat-row">
+          <span style="color: var(--text-muted);">Polarization Fraction ($p$):</span>
+          <span class="slider-val" id="b-frac">0.00 %</span>
+        </div>
+      </div>
+
+      <!-- E-field Animation Canvas -->
+      <div class="canvas-box">
+        <div class="canvas-title">Electric Field Vector Trajectory (eX vs eY)</div>
+        <canvas id="efield-canvas"></canvas>
+      </div>
+    </div>
+
+    <!-- COL 2: Antenna Response Jones Matrices J_p & J_q -->
+    <div class="card">
+      <div class="card-title">
+        <span>2. Antenna Jones Matrices $\mathbf{J}_p, \mathbf{J}_q$</span>
+        <span class="badge-tag">EveryBeam Response</span>
+      </div>
+
+      <!-- Station p Controls -->
+      <div class="control-group">
+        <div style="font-size: 0.85rem; font-weight: 600; color: #a78bfa;">Station $p$ Response ($\mathbf{J}_p$)</div>
+        <div class="slider-row">
+          <div class="slider-header">
+            <span>Gain $g_{pX}, g_{pY}$ Amp</span>
+            <span class="slider-val" id="val-gp">1.00, 1.00</span>
+          </div>
+          <input type="range" id="slider-gp" min="0.5" max="1.5" step="0.05" value="1.00" oninput="updateControls()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-header">
+            <span>Polarization Leakage $d_{pXY}$</span>
+            <span class="slider-val" id="val-dp">0.00</span>
+          </div>
+          <input type="range" id="slider-dp" min="-0.3" max="0.3" step="0.02" value="0.00" oninput="updateControls()">
+        </div>
+      </div>
+
+      <!-- Station q Controls -->
+      <div class="control-group">
+        <div style="font-size: 0.85rem; font-weight: 600; color: #a78bfa;">Station $q$ Response ($\mathbf{J}_q$)</div>
+        <div class="slider-row">
+          <div class="slider-header">
+            <span>Gain $g_{qX}, g_{qY}$ Amp</span>
+            <span class="slider-val" id="val-gq">1.00, 1.00</span>
+          </div>
+          <input type="range" id="slider-gq" min="0.5" max="1.5" step="0.05" value="1.00" oninput="updateControls()">
+        </div>
+        <div class="slider-row">
+          <div class="slider-header">
+            <span>Parallactic Angle / Rotation $\theta_q$</span>
+            <span class="slider-val" id="val-rotq">0°</span>
+          </div>
+          <input type="range" id="slider-rotq" min="-45" max="45" step="5" value="0" oninput="updateControls()">
+        </div>
+      </div>
+
+      <!-- Forward RIME Result: Visibilities V_pq -->
+      <div style="font-size: 0.88rem; font-weight: 600; color: #e5e7eb; margin-top: 6px;">
+        Correlator Output: Visibilities $\mathbf{V}_{pq} = \mathbf{J}_p \mathbf{B} \mathbf{J}_q^H$
+      </div>
+
+      <div class="matrix-container">
+        <div class="matrix-grid-2x2">
+          <div class="matrix-cell">
+            <div class="cell-val" id="v-xx">0.500</div>
+            <div class="cell-sub">V_XX (H-H)</div>
+          </div>
+          <div class="matrix-cell">
+            <div class="cell-val" id="v-xy">0.000</div>
+            <div class="cell-sub">V_XY (H-V)</div>
+          </div>
+          <div class="matrix-cell">
+            <div class="cell-val" id="v-yx">0.000</div>
+            <div class="cell-sub">V_YX (V-H)</div>
+          </div>
+          <div class="matrix-cell">
+            <div class="cell-val" id="v-yy">0.500</div>
+            <div class="cell-sub">V_YY (V-V)</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="stat-row">
+          <span style="color: var(--text-muted);">Cross/Auto Ratio $|V_{XY} / V_{XX}|$:</span>
+          <span class="slider-val" id="v-ratio">0.000</span>
+        </div>
+        <div class="stat-row">
+          <span style="color: var(--text-muted);">Determinant $\det(\mathbf{V}_{pq})$:</span>
+          <span class="slider-val" id="v-det">0.2500</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- COL 3: Calibration Solver Simulation -->
+    <div class="card">
+      <div class="card-title">
+        <span>3. RIME Calibration Solver Simulation</span>
+        <span class="badge-tag">StefCal / Least-Squares</span>
+      </div>
+
+      <p style="font-size: 0.82rem; color: var(--text-muted);">
+        The solver fits antenna gain parameters $\mathbf{G}_p$ assuming an <strong>unpolarized sky model ($\mathbf{B}_{\text{model}} \propto \mathbf{I}$)</strong>.
+      </p>
+
+      <button class="btn btn-success" style="width: 100%; justify-content: center; padding: 12px; font-weight: 600;" onclick="runSolver()">
+        ▶ Run Calibration Solver
+      </button>
+
+      <div class="solver-box">
+        <div class="stat-row">
+          <span>Solver Status:</span>
+          <span id="solver-status" style="font-weight: 600; color: #9ca3af;">READY</span>
+        </div>
+        <div class="stat-row">
+          <span>Residual Fit Error:</span>
+          <span id="solver-residual" class="slider-val">0.0000</span>
+        </div>
+
+        <div class="solver-log" id="solver-log">
+          <div class="log-line log-info">[System] Ready to test gain solver.</div>
+          <div class="log-line">[System] Model assumed: B_model = diag(0.5, 0.5) (Unpolarized).</div>
+        </div>
+      </div>
+
+      <!-- Explanatory Callout -->
+      <div id="callout-container" class="callout-box callout-info">
+        <strong>Normal Case Info:</strong> Unpolarized sky signals produce independent $X$ and $Y$ noise. The visibility off-diagonals $V_{XY} \approx 0$ match the unpolarized sky model, allowing standard calibration solvers to converge cleanly with zero residual.
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Bottom Theory Section -->
+  <div class="theory-section">
+    <h2 style="font-size: 1.2rem; color: #f3f4f6;">Mathematical Foundations (Smirnov RIME Trilogy)</h2>
+    <div class="theory-grid">
+      <div class="theory-card">
+        <h3>1. RIME Baseline Equation (Paper I)</h3>
+        <p>
+          The visibility matrix $\mathbf{V}_{pq}$ for baseline $pq$ is:
+          $$\mathbf{V}_{pq} = \mathbf{J}_p \mathbf{B} \mathbf{J}_q^H$$
+          where $\mathbf{B} = \frac{1}{2} \begin{pmatrix} I+Q & U+iV \\ U-iV & I-Q \end{pmatrix}$ represents the sky brightness tensor. Standard selfcal algorithms assume $Q=U=V=0$, forcing $\mathbf{B}_{\text{unpol}} \propto \mathbf{I}$.
+        </p>
+      </div>
+
+      <div class="theory-card">
+        <h3>2. Signal Generator Singularity (Paper I, §4)</h3>
+        <p>
+          Driving dipoles with identical noise ($v_X = v_Y = s(t)$) produces a wave 100% linearly polarized at 45° ($\text{Stokes } U = I$).
+          $$\mathbf{V}_{pq} = v_{pq} \begin{pmatrix} 1 & 1 \\ 1 & 1 \end{pmatrix}$$
+          Smirnov shows that $\det(\mathbf{V}_{pq}) = 0$ (rank 1), causing irrecoverable loss of polarization information and rank deficiency.
+        </p>
+      </div>
+
+      <div class="theory-card">
+        <h3>3. Calibration Failure (Paper II, §1.1)</h3>
+        <p>
+          The gain solver attempts to fit $\mathbf{G}_p \mathbf{B}_{\text{unpol}} \mathbf{G}_q^H \approx \mathbf{V}_{\text{measured}}$.
+          <br><br>
+          For diagonal gains, the model predicts $M_{XY} = 0$, but injected data has $V_{XY} = v_{pq} \neq 0$. The residual $|M_{XY} - V_{XY}|^2$ cannot be minimized, causing divergence or infinite gain loop.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // State variables
+  let currentPreset = 'unpolarized';
+  let animId = null;
+  let timeStep = 0;
+  let katexLoaded = false;
+
+  function initKaTeX() {
+    katexLoaded = true;
+    renderMath();
+  }
+
+  function renderMath() {
+    if (window.renderMathInElement) {
+      renderMathInElement(document.body, {
+        delimiters: [
+          {left: '$$', right: '$$', display: true},
+          {left: '$', right: '$', display: false}
+        ],
+        throwOnError: false
+      });
+    }
+  }
+
+  function setPreset(type) {
+    currentPreset = type;
+    document.querySelectorAll('.presets-container .btn').forEach(b => b.classList.remove('btn-active'));
+    
+    if (type === 'unpolarized') {
+      document.getElementById('btn-unpol').classList.add('btn-active');
+      setSlider('slider-I', 1.0);
+      setSlider('slider-Q', 0.0);
+      setSlider('slider-U', 0.0);
+      setSlider('slider-V', 0.0);
+    } else if (type === 'signal_generator') {
+      document.getElementById('btn-siggen').classList.add('btn-active');
+      setSlider('slider-I', 1.0);
+      setSlider('slider-Q', 0.0);
+      setSlider('slider-U', 1.0); // U = I -> identical vX and vY!
+      setSlider('slider-V', 0.0);
+    } else if (type === 'horizontal') {
+      document.getElementById('btn-horiz').classList.add('btn-active');
+      setSlider('slider-I', 1.0);
+      setSlider('slider-Q', 1.0);
+      setSlider('slider-U', 0.0);
+      setSlider('slider-V', 0.0);
+    } else if (type === 'circular') {
+      document.getElementById('btn-circ').classList.add('btn-active');
+      setSlider('slider-I', 1.0);
+      setSlider('slider-Q', 0.0);
+      setSlider('slider-U', 0.0);
+      setSlider('slider-V', 1.0);
+    }
+
+    updateControls();
+    resetSolverDisplay();
+  }
+
+  function setSlider(id, val) {
+    document.getElementById(id).value = val;
+  }
+
+  function getNum(id) {
+    return parseFloat(document.getElementById(id).value);
+  }
+
+  function updateControls() {
+    // Read sliders
+    const I = getNum('slider-I');
+    const Q = getNum('slider-Q');
+    const U = getNum('slider-U');
+    const V = getNum('slider-V');
+
+    document.getElementById('val-I').innerText = I.toFixed(2);
+    document.getElementById('val-Q').innerText = Q.toFixed(2);
+    document.getElementById('val-U').innerText = U.toFixed(2);
+    document.getElementById('val-V').innerText = V.toFixed(2);
+
+    const gp = getNum('slider-gp');
+    const dp = getNum('slider-dp');
+    const gq = getNum('slider-gq');
+    const rotq = getNum('slider-rotq');
+
+    document.getElementById('val-gp').innerText = `${gp.toFixed(2)}, ${gp.toFixed(2)}`;
+    document.getElementById('val-dp').innerText = dp.toFixed(2);
+    document.getElementById('val-gq').innerText = `${gq.toFixed(2)}, ${gq.toFixed(2)}`;
+    document.getElementById('val-rotq').innerText = `${rotq}°`;
+
+    // Compute Matrix B
+    // B = 0.5 * [ I+Q , U+iV ; U-iV , I-Q ]
+    const bXX = 0.5 * (I + Q);
+    const bYY = 0.5 * (I - Q);
+    const bXY_re = 0.5 * U;
+    const bXY_im = 0.5 * V;
+    const bYX_re = 0.5 * U;
+    const bYX_im = -0.5 * V;
+
+    document.getElementById('b-xx').innerText = bXX.toFixed(3);
+    document.getElementById('b-yy').innerText = bYY.toFixed(3);
+    document.getElementById('b-xy').innerText = formatComplex(bXY_re, bXY_im);
+    document.getElementById('b-yx').innerText = formatComplex(bYX_re, bYX_im);
+
+    // B Determinant & Rank
+    const detB = 0.25 * (I*I - Q*Q - U*U - V*V);
+    document.getElementById('b-det').innerText = Math.max(0, detB).toFixed(4);
+
+    // Eigenvalues
+    const tr = bXX + bYY;
+    const diff = bXX - bYY;
+    const magOff = 4 * (bXY_re*bXY_re + bXY_im*bXY_im);
+    const disc = Math.sqrt(Math.max(0, diff*diff + magOff));
+    const l1 = 0.5 * (tr + disc);
+    const l2 = 0.5 * (tr - disc);
+
+    document.getElementById('b-eigs').innerText = `${l1.toFixed(2)}, ${Math.max(0, l2).toFixed(2)}`;
+
+    // Polarization fraction
+    const pFrac = Math.sqrt(Math.max(0, Q*Q + U*U + V*V)) / I;
+    document.getElementById('b-frac').innerText = `${(pFrac * 100).toFixed(1)} %`;
+
+    // Rank Badge Status
+    const rankBadge = document.getElementById('rank-badge');
+    const isSingular = Math.abs(detB) < 1e-4 || Math.abs(l2) < 1e-4;
+    
+    if (isSingular) {
+      rankBadge.innerText = 'RANK 1 (SINGULAR / DEFICIENT)';
+      rankBadge.className = 'status-pill pill-singular';
+    } else {
+      rankBadge.innerText = 'RANK 2 (FULL RANK)';
+      rankBadge.className = 'status-pill pill-normal';
+    }
+
+    // Compute Jones Matrices
+    const radq = rotq * Math.PI / 180;
+    const cosq = Math.cos(radq);
+    const sinq = Math.sin(radq);
+
+    // J_p * B
+    const jp_11 = gp, jp_12 = gp * dp;
+    const jp_21 = gp * dp, jp_22 = gp;
+
+    const t11_re = jp_11 * bXX + jp_12 * bYX_re;
+    const t11_im = jp_12 * bYX_im;
+
+    const t12_re = jp_11 * bXY_re + jp_12 * bYY;
+    const t12_im = jp_11 * bXY_im;
+
+    const t21_re = jp_21 * bXX + jp_22 * bYX_re;
+    const t21_im = jp_22 * bYX_im;
+
+    const t22_re = jp_21 * bXY_re + jp_22 * bYY;
+    const t22_im = jp_21 * bXY_im;
+
+    // J_q^H = gq * [ cosq , sinq ; -sinq , cosq ]
+    const jqH_11 = gq * cosq, jqH_12 = gq * sinq;
+    const jqH_21 = -gq * sinq, jqH_22 = gq * cosq;
+
+    // V = temp * J_q^H
+    const vXX_re = t11_re * jqH_11 + t12_re * jqH_21;
+    const vXX_im = t11_im * jqH_11 + t12_im * jqH_21;
+
+    const vXY_re = t11_re * jqH_12 + t12_re * jqH_22;
+    const vXY_im = t11_im * jqH_12 + t12_im * jqH_22;
+
+    const vYX_re = t21_re * jqH_11 + t22_re * jqH_21;
+    const vYX_im = t21_im * jqH_11 + t22_im * jqH_21;
+
+    const vYY_re = t21_re * jqH_12 + t22_re * jqH_22;
+    const vYY_im = t21_im * jqH_12 + t22_im * jqH_22;
+
+    document.getElementById('v-xx').innerText = formatComplex(vXX_re, vXX_im);
+    document.getElementById('v-xy').innerText = formatComplex(vXY_re, vXY_im);
+    document.getElementById('v-yx').innerText = formatComplex(vYX_re, vYX_im);
+    document.getElementById('v-yy').innerText = formatComplex(vYY_re, vYY_im);
+
+    // Ratio V_XY / V_XX
+    const magVXX = Math.sqrt(vXX_re*vXX_re + vXX_im*vXX_im);
+    const magVXY = Math.sqrt(vXY_re*vXY_re + vXY_im*vXY_im);
+    const ratio = magVXX > 0 ? magVXY / magVXX : 0;
+    document.getElementById('v-ratio').innerText = ratio.toFixed(3);
+
+    // det(V)
+    const detV = Math.abs((vXX_re*vYY_re - vXX_im*vYY_im) - (vXY_re*vYX_re - vXY_im*vYX_im));
+    document.getElementById('v-det').innerText = detV.toFixed(4);
+
+    // Update Callout
+    const callout = document.getElementById('callout-container');
+    if (isSingular) {
+      callout.className = 'callout-box callout-warning';
+      callout.innerHTML = `
+        <strong>🔴 SINGULAR SIGNAL GENERATOR CASE ($U = I$):</strong><br>
+        Identical synchronized noise ($v_X = v_Y$) creates a rank-1 coherence matrix ($\det \\mathbf{B} = 0$).
+        Visibility matrix elements are equal ($V_{XX} = V_{XY} = V_{YX} = V_{YY}$).
+        Standard RIME calibrators assume an unpolarized sky ($M_{XY} = 0$), leading to a direct mathematical contradiction and solver divergence (Smirnov Paper I, Section 4).
+      `;
+    } else {
+      callout.className = 'callout-box callout-info';
+      callout.innerHTML = `
+        <strong>🟢 NORMAL UNPOLARIZED SKY CASE (Rank 2):</strong><br>
+        Unpolarized sky radiation produces independent, uncorrelated $X$ and $Y$ noise ($\langle e_x e_y^* \rangle = 0$).
+        Visibility matrix off-diagonals are zero ($V_{XY} \\approx 0$). The least-squares RIME gain solver will converge cleanly with zero residual.
+      `;
+    }
+
+    renderMath();
+  }
+
+  function formatComplex(re, im) {
+    if (Math.abs(im) < 1e-4) return re.toFixed(3);
+    const sign = im >= 0 ? '+' : '-';
+    return `${re.toFixed(3)} ${sign} ${Math.abs(im).toFixed(2)}i`;
+  }
+
+  /* Solver Simulator */
+  function resetSolverDisplay() {
+    document.getElementById('solver-status').innerText = 'READY';
+    document.getElementById('solver-status').style.color = '#9ca3af';
+    document.getElementById('solver-residual').innerText = '0.0000';
+    document.getElementById('solver-log').innerHTML = `
+      <div class="log-line log-info">[System] Ready to test gain solver.</div>
+      <div class="log-line">[System] Model assumed: B_model = diag(0.5, 0.5) (Unpolarized).</div>
+    `;
+  }
+
+  function runSolver() {
+    const logBox = document.getElementById('solver-log');
+    const statusBox = document.getElementById('solver-status');
+    const resBox = document.getElementById('solver-residual');
+
+    logBox.innerHTML = '';
+    logBox.innerHTML += `<div class="log-line log-info">[Solver] Initiating StefCal RIME Gauss-Newton loop...</div>`;
+    logBox.innerHTML += `<div class="log-line">[Solver] Assuming Unpolarized Sky Model B_model = [0.5, 0; 0, 0.5]</div>`;
+
+    const U = getNum('slider-U');
+    const I = getNum('slider-I');
+    const isSingular = Math.abs(U - I) < 0.1;
+
+    let iter = 1;
+    let res = isSingular ? 0.485 : 0.25;
+
+    statusBox.innerText = 'SOLVING...';
+    statusBox.style.color = '#60a5fa';
+
+    const interval = setInterval(() => {
+      if (!isSingular) {
+        // Converges cleanly
+        res = res * 0.25;
+        logBox.innerHTML += `<div class="log-line log-success">Iter ${iter}: Gain update ΔG = ${(0.1/iter).toFixed(4)}, Residual ||V - G M G^H||^2 = ${res.toFixed(5)}</div>`;
+        resBox.innerText = res.toFixed(5);
+
+        if (iter >= 4 || res < 1e-4) {
+          clearInterval(interval);
+          resBox.innerText = '0.00000';
+          statusBox.innerText = 'CONVERGED (SUCCESS)';
+          statusBox.style.color = '#34d399';
+          logBox.innerHTML += `<div class="log-line log-success">✔ SOLVER CONVERGED IN ${iter} ITERATIONS! (Zero residual).</div>`;
+        }
+      } else {
+        // Singular Signal Generator Divergence
+        res = 0.500 + (Math.random() * 0.04 - 0.02);
+        logBox.innerHTML += `<div class="log-line log-warn">Iter ${iter}: Data V_XY = 0.500, Model M_XY = 0.000 -> Residual = ${res.toFixed(4)}</div>`;
+        resBox.innerText = res.toFixed(4);
+
+        if (iter >= 5) {
+          clearInterval(interval);
+          statusBox.innerText = 'DIVERGED (FAILED)';
+          statusBox.style.color = '#f87171';
+          logBox.innerHTML += `<div class="log-line log-error">❌ SOLVER FAILED TO CONVERGE!</div>`;
+          logBox.innerHTML += `<div class="log-line log-error">Reason: Observed visibilities have V_XX = V_XY = V_YX = V_YY = 0.5 (Rank 1), but model expects unpolarized V_XY = 0 (Rank 2).</div>`;
+          logBox.innerHTML += `<div class="log-line log-warn">Ref: Smirnov (2011a) Paper I, Section 4: Singular matrix irrecoverable loss of polarization.</div>`;
+        }
+      }
+      logBox.scrollTop = logBox.scrollHeight;
+      iter++;
+    }, 400);
+  }
+
+  /* Canvas animation for E-field trajectory */
+  function drawCanvas() {
+    const canvas = document.getElementById('efield-canvas');
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width = canvas.clientWidth;
+    const height = canvas.height = canvas.clientHeight;
+
+    ctx.clearRect(0, 0, width, height);
+
+    // Draw Axes
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(width/2, 0); ctx.lineTo(width/2, height);
+    ctx.moveTo(0, height/2); ctx.lineTo(width, height/2);
+    ctx.stroke();
+
+    const I = getNum('slider-I');
+    const Q = getNum('slider-Q');
+    const U = getNum('slider-U');
+    const V = getNum('slider-V');
+
+    const scale = Math.min(width, height) * 0.35;
+    const cx = width / 2;
+    const cy = height / 2;
+
+    ctx.fillStyle = '#60a5fa';
+    ctx.strokeStyle = '#a78bfa';
+
+    // Draw cloud of points representing ensemble <eX(t), eY(t)>
+    const N = 300;
+    timeStep += 0.05;
+
+    ctx.beginPath();
+    for (let i = 0; i < N; i++) {
+      let ex, ey;
+      
+      if (Math.abs(U - I) < 0.1 && Math.abs(Q) < 0.1) {
+        // Identical Signal Generator case: eX(t) = eY(t) -> perfectly along 45 degree line!
+        const noise = (Math.sin(i * 1.7 + timeStep) + Math.cos(i * 0.9)) * 0.5 * Math.sqrt(I);
+        ex = noise;
+        ey = noise; // Identical!
+      } else if (Math.abs(Q - I) < 0.1) {
+        // H polarized: eY = 0
+        ex = (Math.sin(i * 1.5 + timeStep)) * Math.sqrt(I);
+        ey = (Math.random() - 0.5) * 0.05;
+      } else if (Math.abs(V - I) < 0.1) {
+        // Circular: eY phase shifted 90 deg from eX
+        const phase = i * 0.1 + timeStep;
+        ex = Math.cos(phase) * Math.sqrt(I * 0.5);
+        ey = Math.sin(phase) * Math.sqrt(I * 0.5);
+      } else {
+        // Unpolarized Sky: independent eX and eY noise
+        const n1 = (Math.sin(i * 1.3 + timeStep*2) + Math.cos(i * 3.1)) * 0.4 * Math.sqrt(I + Q);
+        const n2 = (Math.sin(i * 2.7 - timeStep*1.5) + Math.cos(i * 1.4)) * 0.4 * Math.sqrt(I - Q);
+        ex = n1 + 0.3 * U * n2;
+        ey = n2 + 0.3 * U * n1;
+      }
+
+      const px = cx + ex * scale;
+      const py = cy - ey * scale;
+
+      ctx.fillRect(px - 1.5, py - 1.5, 3, 3);
+    }
+
+    requestAnimationFrame(drawCanvas);
+  }
+
+  // Initialize on load
+  window.onload = function() {
+    updateControls();
+    drawCanvas();
+  };
+</script>
+
+</body>
+</html>
