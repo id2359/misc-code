@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Condition Numbers — κ(A)</title>
+<style>
+  :root {
+    --bg: #0e1117;
+    --panel: #161b24;
+    --panel2: #1c2230;
+    --border: #2a3244;
+    --text: #e6e9f0;
+    --muted: #9aa4b8;
+    --blue: #4f9cf9;
+    --blue-dim: rgba(79,156,249,.16);
+    --orange: #f59e42;
+    --orange-dim: rgba(245,158,66,.16);
+    --green: #34d399;
+    --red: #f87171;
+    --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 28px 20px 60px;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+  h1 { font-size: 26px; font-weight: 700; letter-spacing: -.01em; }
+  h1 .kappa { color: var(--orange); font-family: var(--mono); }
+  .sub { color: var(--muted); margin-top: 6px; max-width: 720px; }
+  .layout { display: grid; grid-template-columns: 1fr 320px; gap: 18px; margin-top: 24px; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 12px; font-weight: 600; }
+  canvas { display: block; width: 100%; border-radius: 8px; background: #0a0d13; touch-action: none; cursor: crosshair; }
+  .hint { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+  .hint b { color: var(--text); font-weight: 600; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 3px; vertical-align: baseline; }
+
+  /* matrix input */
+  .matrix-row { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 14px; }
+  .bracket { font-size: 54px; font-weight: 200; color: var(--muted); line-height: 1; user-select: none; }
+  .mgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .mgrid input {
+    width: 74px; padding: 7px 6px; text-align: center;
+    background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font-family: var(--mono); font-size: 14px;
+  }
+  .mgrid input:focus { outline: none; border-color: var(--blue); }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .presets button {
+    background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 5px 11px; font-size: 12.5px; cursor: pointer;
+  }
+  .presets button:hover { border-color: var(--blue); color: var(--blue); }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  .stat .label { font-size: 11.5px; color: var(--muted); }
+  .stat .value { font-family: var(--mono); font-size: 17px; margin-top: 2px; }
+  .stat.kappa { grid-column: 1 / -1; }
+  .stat.kappa .value { font-size: 24px; }
+
+  .meter { margin-top: 10px; }
+  .meter-track {
+    height: 10px; border-radius: 999px; position: relative;
+    background: linear-gradient(90deg, #34d399, #a3d34c, #f5c542, #f59e42, #f87171);
+  }
+  .meter-needle {
+    position: absolute; top: -4px; width: 3px; height: 18px;
+    background: #fff; border-radius: 2px; transform: translateX(-50%);
+    box-shadow: 0 0 6px rgba(0,0,0,.6);
+  }
+  .meter-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-family: var(--mono); margin-top: 5px; }
+  .meter-caption { text-align: center; font-size: 12px; margin-top: 6px; }
+
+  .anim-btn {
+    width: 100%; margin-top: 14px; padding: 8px;
+    background: var(--blue-dim); color: var(--blue);
+    border: 1px solid var(--blue); border-radius: 8px;
+    font-size: 13.5px; cursor: pointer; font-weight: 600;
+  }
+
+  /* perturbation experiment */
+  .exp { margin-top: 18px; }
+  .exp-grid { display: grid; grid-template-columns: 260px 1fr; gap: 22px; align-items: start; }
+  @media (max-width: 760px) { .exp-grid { grid-template-columns: 1fr; } }
+  .exp label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 6px; }
+  input[type=range] { width: 100%; accent-color: var(--orange); }
+  .bars { display: grid; gap: 12px; }
+  .bar-row .bar-label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+  .bar-label .val { font-family: var(--mono); color: var(--text); }
+  .bar-track { height: 14px; background: var(--panel2); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; position: relative; }
+  .bar-fill { height: 100%; border-radius: 999px; transition: width .15s; }
+  .formula {
+    font-family: var(--mono); font-size: 13.5px;
+    background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; margin-top: 14px;
+    color: var(--muted);
+  }
+  .formula b { color: var(--orange); font-weight: 600; }
+
+  /* explainer cards */
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+  @media (max-width: 860px) { .cards { grid-template-columns: 1fr; } }
+  .cards h3 { font-size: 15px; margin-bottom: 8px; }
+  .cards p, .cards li { font-size: 13.5px; color: var(--muted); }
+  .cards ul { padding-left: 18px; margin-top: 6px; }
+  .cards li { margin-bottom: 5px; }
+  .cards code { font-family: var(--mono); font-size: 12.5px; color: var(--text); background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
+  .k { font-family: var(--mono); color: var(--orange); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Condition numbers <span class="kappa">κ(A) = σ₁ / σ₂</span></h1>
+  <p class="sub">
+    A matrix maps the unit circle to an ellipse. The condition number is the ratio of the most
+    stretching (σ₁, long axis) to the least stretching (σ₂, short axis) — it measures how
+    <em>unevenly</em> the transformation distorts space, and how much errors can be amplified
+    when you solve <span class="k">Ax&nbsp;=&nbsp;b</span>.
+  </p>
+
+  <div class="layout">
+    <div class="card">
+      <h2>Unit circle → ellipse</h2>
+      <canvas id="cv" height="520"></canvas>
+      <p class="hint">
+        <b>Drag the ⬛ square handles</b> to move the matrix columns Ae₁, Ae₂ and reshape the map.
+        <b>Drag the <span class="dot" style="background:var(--blue)"></span> point x</b> around the
+        circle to see its image <span class="dot" style="background:var(--orange)"></span> Ax sweep the ellipse.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Matrix A</h2>
+      <div class="matrix-row">
+        <span class="bracket">[</span>
+        <div class="mgrid">
+          <input id="ma" type="number" step="0.1" value="2">
+          <input id="mb" type="number" step="0.1" value="1">
+          <input id="mc" type="number" step="0.1" value="0">
+          <input id="md" type="number" step="0.1" value="1">
+        </div>
+        <span class="bracket">]</span>
+      </div>
+
+      <div class="presets" id="presets"></div>
+
+      <div class="stats">
+        <div class="stat"><div class="label">σ₁ (max stretch)</div><div class="value" id="s1" style="color:var(--orange)">–</div></div>
+        <div class="stat"><div class="label">σ₂ (min stretch)</div><div class="value" id="s2" style="color:var(--orange)">–</div></div>
+        <div class="stat"><div class="label">det A (area factor)</div><div class="value" id="det">–</div></div>
+        <div class="stat"><div class="label">‖Ax‖ for current x</div><div class="value" id="axn" style="color:var(--blue)">–</div></div>
+        <div class="stat kappa"><div class="label">condition number κ = σ₁/σ₂</div><div class="value" id="kv">–</div></div>
+      </div>
+
+      <div class="meter">
+        <div class="meter-track"><div class="meter-needle" id="needle"></div></div>
+        <div class="meter-labels"><span>1</span><span>10</span><span>10²</span><span>10³</span><span>≥10⁴</span></div>
+        <div class="meter-caption" id="verdict">–</div>
+      </div>
+
+      <button class="anim-btn" id="animBtn">▶ Animate x around the circle</button>
+    </div>
+  </div>
+
+  <div class="card exp">
+    <h2>Use case — sensitivity of solving Ax = b</h2>
+    <div class="exp-grid">
+      <div>
+        <p style="font-size:13.5px; color:var(--muted); margin-bottom:14px;">
+          Take a right-hand side <span class="k">b</span> (chosen along u₁, the least-sensitive
+          direction) and nudge it by a tiny error <span class="k">δb</span> with
+          <span class="k">‖δb‖/‖b‖ = 0.1%</span> — measurement noise, rounding, sensor error.
+          How wrong does the solution <span class="k">x</span> get?
+        </p>
+        <label>Direction of the error δb: <b id="alphaLabel" style="color:var(--text)">90°</b> from u₁</label>
+        <input id="alpha" type="range" min="0" max="90" value="90" step="1">
+        <div class="formula">
+          ‖δx‖/‖x‖ &nbsp;≤&nbsp; <b>κ(A)</b> · ‖δb‖/‖b‖
+        </div>
+      </div>
+      <div class="bars">
+        <div class="bar-row">
+          <div class="bar-label"><span>Input error &nbsp;‖δb‖/‖b‖</span><span class="val">0.100%</span></div>
+          <div class="bar-track"><div class="bar-fill" id="barIn" style="background:var(--blue); width:2%"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label"><span>Output error &nbsp;‖δx‖/‖x‖</span><span class="val" id="outErr">–</span></div>
+          <div class="bar-track"><div class="bar-fill" id="barOut" style="background:var(--orange)"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label"><span>Amplification factor (log scale, max = κ)</span><span class="val" id="ampVal">–</span></div>
+          <div class="bar-track"><div class="bar-fill" id="barAmp" style="background:var(--red)"></div></div>
+        </div>
+        <p class="hint" id="expNote"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h3>What κ measures</h3>
+      <p>
+        Any 2×2 matrix rotates, stretches along two perpendicular directions (by σ₁ and σ₂),
+        then rotates again — that's the SVD. The unit circle becomes an ellipse with semi-axes
+        σ₁ and σ₂. <span class="k">κ = σ₁/σ₂</span> is the ellipse's aspect ratio:
+      </p>
+      <ul>
+        <li><span class="k">κ = 1</span> — circle stays a circle (rotations, uniform scaling). Perfectly conditioned.</li>
+        <li><span class="k">κ large</span> — a squashed sliver. Nearly loses a dimension.</li>
+        <li><span class="k">κ = ∞</span> — the ellipse collapses to a line: A is singular, no inverse.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Why errors blow up</h3>
+      <p>
+        Solving <code>Ax = b</code> means applying A⁻¹, which stretches by 1/σ₂ in the direction
+        A squashed most. An error δb pointing that way gets magnified by 1/σ₂, while b itself may
+        only shrink by 1/σ₁ — the <em>relative</em> error grows by up to κ.
+      </p>
+      <p style="margin-top:8px;">
+        Rule of thumb: you lose about <code>log₁₀ κ</code> significant digits.
+        With 16-digit floating point, κ ≈ 10¹⁰ leaves only ~6 trustworthy digits.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Where it shows up</h3>
+      <ul>
+        <li><b>Linear systems</b> — Gaussian elimination on ill-conditioned A gives garbage even with exact arithmetic on rounded inputs.</li>
+        <li><b>Least squares / regression</b> — nearly collinear features ⇒ huge κ ⇒ wildly unstable coefficients. Normal equations square it: κ(AᵀA) = κ(A)².</li>
+        <li><b>Optimization / ML</b> — gradient descent converges slowly on ill-conditioned loss surfaces; that's why we normalize features and precondition.</li>
+        <li><b>Graphics &amp; geometry</b> — inverting a nearly-degenerate transform (thin triangles, near-parallel view rays) is numerically fragile.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ---------- state ----------
+const state = {
+  A: { a: 2, b: 1, c: 0, d: 1 },   // [[a b],[c d]], x' = A x
+  angle: Math.PI / 5,               // angle of the probe point x on the unit circle
+  animating: false,
+  alpha: 90                         // δb direction (degrees from u1)
+};
+
+// ---------- linear algebra ----------
+function applyA(A, v) { return { x: A.a * v.x + A.b * v.y, y: A.c * v.x + A.d * v.y }; }
+
+// SVD data via eigen-decomposition of AᵀA (robust for drawing & numbers)
+function svd(A) {
+  const p = A.a * A.a + A.c * A.c;
+  const q = A.a * A.b + A.c * A.d;
+  const r = A.b * A.b + A.d * A.d;
+  const half = (p + r) / 2;
+  const disc = Math.hypot((p - r) / 2, q);
+  const l1 = Math.max(half + disc, 0);
+  const l2 = Math.max(half - disc, 0);
+  const s1 = Math.sqrt(l1), s2 = Math.sqrt(l2);
+
+  // right singular vector v1 (input direction stretched most)
+  let v1;
+  if (Math.abs(q) > 1e-12) v1 = norm({ x: l1 - r, y: q });
+  else v1 = p >= r ? { x: 1, y: 0 } : { x: 0, y: 1 };
+  const v2 = { x: -v1.y, y: v1.x };
+
+  // left singular vectors u_i = A v_i / σ_i
+  const u1 = s1 > 1e-12 ? scale(applyA(A, v1), 1 / s1) : { x: 1, y: 0 };
+  const u2 = s2 > 1e-12 ? scale(applyA(A, v2), 1 / s2) : { x: -u1.y, y: u1.x };
+
+  return { s1, s2, v1, v2, u1, u2, kappa: s2 > 1e-12 ? s1 / s2 : Infinity };
+}
+function norm(v) { const n = Math.hypot(v.x, v.y) || 1; return { x: v.x / n, y: v.y / n }; }
+function scale(v, k) { return { x: v.x * k, y: v.y * k }; }
+
+// ---------- canvas ----------
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+let view = { cx: 0, cy: 0, s: 60 };  // world→screen: sx = cx + x*s, sy = cy - y*s
+
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth;
+  const h = Math.min(520, Math.max(360, w * 0.72));
+  cv.style.height = h + "px";
+  cv.width = w * dpr;
+  cv.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+window.addEventListener("resize", resizeCanvas);
+
+function toScreen(v) { return { x: view.cx + v.x * view.s, y: view.cy - v.y * view.s }; }
+function toWorld(px, py) { return { x: (px - view.cx) / view.s, y: (view.cy - py) / view.s }; }
+
+function drawArrow(from, to, color, width, dash) {
+  const a = toScreen(from), b = toScreen(to);
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width;
+  if (dash) ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  ctx.setLineDash([]);
+  const ang = Math.atan2(b.y - a.y, b.x - a.x), hl = 8;
+  ctx.beginPath();
+  ctx.moveTo(b.x, b.y);
+  ctx.lineTo(b.x - hl * Math.cos(ang - 0.45), b.y - hl * Math.sin(ang - 0.45));
+  ctx.lineTo(b.x - hl * Math.cos(ang + 0.45), b.y - hl * Math.sin(ang + 0.45));
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function draw() {
+  const w = cv.clientWidth, h = cv.clientHeight;
+  const A = state.A, sv = svd(A);
+  view.cx = w / 2; view.cy = h / 2;
+  view.s = (Math.min(w, h) / 2 - 26) / Math.max(sv.s1, 1.15);
+
+  ctx.clearRect(0, 0, w, h);
+
+  // grid
+  ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 1;
+  const maxCoord = Math.ceil(Math.max(w, h) / 2 / view.s);
+  for (let i = -maxCoord; i <= maxCoord; i++) {
+    ctx.beginPath(); ctx.moveTo(view.cx + i * view.s, 0); ctx.lineTo(view.cx + i * view.s, h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, view.cy + i * view.s); ctx.lineTo(w, view.cy + i * view.s); ctx.stroke();
+  }
+  ctx.strokeStyle = "rgba(255,255,255,0.14)";
+  ctx.beginPath(); ctx.moveTo(view.cx, 0); ctx.lineTo(view.cx, h); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, view.cy); ctx.lineTo(w, view.cy); ctx.stroke();
+
+  // ellipse: image of the unit circle, drawn by mapping points through A (always exact)
+  ctx.beginPath();
+  for (let i = 0; i <= 128; i++) {
+    const t = (i / 128) * 2 * Math.PI;
+    const p = toScreen(applyA(A, { x: Math.cos(t), y: Math.sin(t) }));
+    i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = "rgba(245,158,66,0.13)";
+  ctx.strokeStyle = "#f59e42"; ctx.lineWidth = 2;
+  ctx.fill(); ctx.stroke();
+
+  // unit circle
+  ctx.beginPath();
+  ctx.arc(view.cx, view.cy, view.s, 0, 2 * Math.PI);
+  ctx.strokeStyle = "#4f9cf9"; ctx.lineWidth = 2;
+  ctx.fillStyle = "rgba(79,156,249,0.08)";
+  ctx.fill(); ctx.stroke();
+
+  // singular axes of the ellipse: σ1·u1 and σ2·u2
+  drawArrow({ x: 0, y: 0 }, scale(sv.u1, sv.s1), "#f59e42", 2.5);
+  drawArrow({ x: 0, y: 0 }, scale(sv.u2, sv.s2), "#d97706", 2.5);
+  // the input directions that land on those axes (dashed, on the circle)
+  drawArrow({ x: 0, y: 0 }, sv.v1, "rgba(79,156,249,0.55)", 1.5, [5, 4]);
+  drawArrow({ x: 0, y: 0 }, sv.v2, "rgba(79,156,249,0.35)", 1.5, [5, 4]);
+
+  labelAt(scale(sv.u1, sv.s1), "σ₁u₁", "#f59e42");
+  labelAt(scale(sv.u2, sv.s2), "σ₂u₂", "#d97706");
+  labelAt(sv.v1, "v₁", "rgba(79,156,249,0.8)");
+
+  // probe point x and its image Ax
+  const xv = { x: Math.cos(state.angle), y: Math.sin(state.angle) };
+  const Ax = applyA(A, xv);
+  const ps = toScreen(xv), qs = toScreen(Ax);
+  ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
+  ctx.beginPath(); ctx.moveTo(ps.x, ps.y); ctx.lineTo(qs.x, qs.y); ctx.stroke();
+  ctx.setLineDash([]);
+  dotAt(ps, "#4f9cf9", 6); labelScreen(ps, "x", "#4f9cf9");
+  dotAt(qs, "#f59e42", 6); labelScreen(qs, "Ax", "#f59e42");
+
+  // draggable column handles: A e1 = (a,c), A e2 = (b,d)
+  squareAt(toScreen({ x: A.a, y: A.c }), "#e6e9f0"); labelScreen(toScreen({ x: A.a, y: A.c }), "Ae₁", "#e6e9f0");
+  squareAt(toScreen({ x: A.b, y: A.d }), "#e6e9f0"); labelScreen(toScreen({ x: A.b, y: A.d }), "Ae₂", "#e6e9f0");
+
+  updateReadouts(sv, Ax);
+}
+
+function dotAt(p, color, r) {
+  ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 2 * Math.PI);
+  ctx.fillStyle = color; ctx.fill();
+  ctx.strokeStyle = "#0a0d13"; ctx.lineWidth = 2; ctx.stroke();
+}
+function squareAt(p, color) {
+  ctx.fillStyle = color;
+  ctx.strokeStyle = "#0a0d13"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.rect(p.x - 5.5, p.y - 5.5, 11, 11); ctx.fill(); ctx.stroke();
+}
+function labelAt(v, text, color) { labelScreen(toScreen(v), text, color); }
+function labelScreen(p, text, color) {
+  ctx.font = "12px " + getComputedStyle(document.body).getPropertyValue("--mono");
+  ctx.fillStyle = color;
+  ctx.fillText(text, p.x + 9, p.y - 9);
+}
+
+// ---------- readouts ----------
+const fmt = v => !isFinite(v) ? "∞"
+  : Math.abs(v) >= 1e4 || (Math.abs(v) > 0 && Math.abs(v) < 1e-3) ? v.toExponential(2)
+  : v.toFixed(3);
+
+function updateReadouts(sv, Ax) {
+  const A = state.A;
+  document.getElementById("s1").textContent = fmt(sv.s1);
+  document.getElementById("s2").textContent = fmt(sv.s2);
+  document.getElementById("det").textContent = fmt(A.a * A.d - A.b * A.c);
+  document.getElementById("axn").textContent = fmt(Math.hypot(Ax.x, Ax.y));
+
+  const kEl = document.getElementById("kv");
+  kEl.textContent = fmt(sv.kappa);
+  const logk = isFinite(sv.kappa) ? Math.log10(sv.kappa) : 4;
+  const frac = Math.min(logk / 4, 1);
+  kEl.style.color = frac < 0.25 ? "var(--green)" : frac < 0.6 ? "var(--orange)" : "var(--red)";
+  document.getElementById("needle").style.left = (frac * 100) + "%";
+
+  const verdict = document.getElementById("verdict");
+  if (!isFinite(sv.kappa)) { verdict.textContent = "singular — not invertible"; verdict.style.color = "var(--red)"; }
+  else if (sv.kappa < 3)   { verdict.textContent = "well-conditioned";           verdict.style.color = "var(--green)"; }
+  else if (sv.kappa < 30)  { verdict.textContent = "moderately conditioned";     verdict.style.color = "var(--orange)"; }
+  else                     { verdict.textContent = "ill-conditioned — expect ~" + Math.round(logk) + " digits lost"; verdict.style.color = "var(--red)"; }
+
+  updateExperiment(sv);
+}
+
+// ---------- perturbation experiment ----------
+// b = u1  ⇒  x = A⁻¹b = v1/σ1.   δb = ε(cosα·u1 + sinα·u2)  ⇒  δx = ε(cosα·v1/σ1 + sinα·v2/σ2)
+// amplification = (‖δx‖/‖x‖) / (‖δb‖/‖b‖) = hypot(cosα, κ·sinα)   ∈ [1, κ]
+function updateExperiment(sv) {
+  const eps = 1e-3;
+  const a = state.alpha * Math.PI / 180;
+  const outErrEl = document.getElementById("outErr");
+  const ampEl = document.getElementById("ampVal");
+  const note = document.getElementById("expNote");
+
+  if (!isFinite(sv.kappa)) {
+    outErrEl.textContent = "∞"; ampEl.textContent = "∞";
+    document.getElementById("barOut").style.width = "100%";
+    document.getElementById("barAmp").style.width = "100%";
+    note.textContent = "A is singular: some right-hand sides have no solution at all, and errors along the collapsed direction are unrecoverable.";
+    return;
+  }
+  const amp = Math.hypot(Math.cos(a), sv.kappa * Math.sin(a));
+  const outErr = amp * eps;
+
+  outErrEl.textContent = (outErr * 100).toFixed(3) + "%";
+  ampEl.textContent = fmt(amp) + "×   (κ = " + fmt(sv.kappa) + ")";
+
+  // input bar is fixed at a small width for reference; output bar relative to worst case κ·ε
+  document.getElementById("barOut").style.width = Math.max(2, (outErr / (sv.kappa * eps)) * 100) + "%";
+  const logFrac = Math.log10(sv.kappa) < 1e-9 ? 1 : Math.log10(amp) / Math.log10(sv.kappa);
+  document.getElementById("barAmp").style.width = Math.max(2, Math.min(logFrac, 1) * 100) + "%";
+
+  note.textContent = state.alpha === 90
+    ? "Worst case: the error points along u₂, exactly where A⁻¹ stretches by 1/σ₂. A 0.1% input error becomes a " + (outErr * 100).toFixed(2) + "% solution error."
+    : state.alpha === 0
+      ? "Best case: the error is aligned with b, so relative error passes through unamplified (factor 1)."
+      : "Slide toward 90° to align the error with the sensitive direction u₂ and watch amplification climb toward κ.";
+}
+
+// ---------- inputs ----------
+const inputs = { a: document.getElementById("ma"), b: document.getElementById("mb"),
+                 c: document.getElementById("mc"), d: document.getElementById("md") };
+for (const k of Object.keys(inputs)) {
+  inputs[k].addEventListener("input", () => {
+    const v = parseFloat(inputs[k].value);
+    if (isFinite(v)) { state.A[k] = v; draw(); }
+  });
+}
+function syncInputs() {
+  for (const k of Object.keys(inputs)) inputs[k].value = (Math.round(state.A[k] * 100) / 100).toString();
+}
+
+const presets = [
+  ["Identity",        { a: 1, b: 0, c: 0, d: 1 }],
+  ["Rotation 30°",    { a: 0.87, b: -0.5, c: 0.5, d: 0.87 }],
+  ["Stretch 3×",      { a: 3, b: 0, c: 0, d: 1 }],
+  ["Shear",           { a: 1, b: 1.5, c: 0, d: 1 }],
+  ["Nearly singular", { a: 1, b: 0.99, c: 0.99, d: 0.98 }],
+  ["Singular",        { a: 2, b: 1, c: 2, d: 1 }],
+];
+const presetBox = document.getElementById("presets");
+for (const [name, M] of presets) {
+  const btn = document.createElement("button");
+  btn.textContent = name;
+  btn.addEventListener("click", () => { state.A = { ...M }; syncInputs(); draw(); });
+  presetBox.appendChild(btn);
+}
+
+document.getElementById("alpha").addEventListener("input", e => {
+  state.alpha = +e.target.value;
+  document.getElementById("alphaLabel").textContent = state.alpha + "°";
+  updateExperiment(svd(state.A));
+});
+
+// ---------- dragging ----------
+let dragging = null; // "col1" | "col2" | "x"
+cv.addEventListener("pointerdown", e => {
+  const rect = cv.getBoundingClientRect();
+  const px = e.clientX - rect.left, py = e.clientY - rect.top;
+  const near = (v, r) => { const s = toScreen(v); return Math.hypot(s.x - px, s.y - py) < r; };
+  const A = state.A;
+  if (near({ x: A.a, y: A.c }, 14)) dragging = "col1";
+  else if (near({ x: A.b, y: A.d }, 14)) dragging = "col2";
+  else dragging = "x";
+  cv.setPointerCapture(e.pointerId);
+  handleDrag(px, py);
+});
+cv.addEventListener("pointermove", e => {
+  if (!dragging) return;
+  const rect = cv.getBoundingClientRect();
+  handleDrag(e.clientX - rect.left, e.clientY - rect.top);
+});
+cv.addEventListener("pointerup", () => { dragging = null; });
+
+function handleDrag(px, py) {
+  const wpt = toWorld(px, py);
+  if (dragging === "col1") { state.A.a = wpt.x; state.A.c = wpt.y; syncInputs(); }
+  else if (dragging === "col2") { state.A.b = wpt.x; state.A.d = wpt.y; syncInputs(); }
+  else { state.angle = Math.atan2(wpt.y, wpt.x); state.animating = false; setAnimBtn(); }
+  draw();
+}
+
+// ---------- animation ----------
+const animBtn = document.getElementById("animBtn");
+function setAnimBtn() { animBtn.textContent = state.animating ? "⏸ Pause" : "▶ Animate x around the circle"; }
+animBtn.addEventListener("click", () => { state.animating = !state.animating; setAnimBtn(); if (state.animating) tick(); });
+function tick() {
+  if (!state.animating) return;
+  state.angle += 0.014;
+  draw();
+  requestAnimationFrame(tick);
+}
+
+resizeCanvas();
+</script>
+</body>
+</html>
