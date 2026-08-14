@@ -1,0 +1,99 @@
+================================================================================
+EVERYBEAM & RIME CALIBRATION CONVERGENCE ANALYSIS
+(CONFIRMED AGAINST SMIRNOV RIME PAPERS I, II, & III)
+================================================================================
+
+1. EXECUTIVE SUMMARY & DIRECT CONFIRMATION
+-------------------------------------------
+After reviewing the three foundational papers:
+  - Smirnov (2011a) "Revisiting the RIME. I. A full-sky Jones formalism" (A&A 527, A106)
+  - Smirnov (2011b) "Revisiting the RIME. II. Calibration and direction-dependent effects" (A&A 527, A107)
+  - Smirnov (2011c) "Revisiting the RIME. III. Addressing direction-dependent effects..." (A&A 527, A108)
+
+We confirm both of your questions with exact mathematical alignment from the RIME formalism:
+
+Q1: Is EveryBeam building in the assumption that XX and XY are uncorrelated?
+A1: NO. EveryBeam purely models the direction-dependent per-antenna 2x2 Jones matrix 
+    J_p (or E_p in Paper II, Sect. 2.1). It evaluates beam geometry, dipole patterns, 
+    and leakage matrices. 
+    
+    HOWEVER, the RIME calibration module using EveryBeam DOES build in this assumption. 
+    In Paper I Eq. (7), the sky brightness matrix B is defined as:
+        B = [ I + Q    U + iV ] = 2 * [ <e_x * e_x*>   <e_x * e_y*> ]
+            [ U - iV   I - Q  ]       [ <e_y * e_x*>   <e_y * e_y*> ]
+    Standard calibration routines assume an UNPOLARIZED sky (I > 0, Q=0, U=0, V=0), 
+    which forces B_unpol = I * [1 0; 0 1]. This explicitly asserts that incoming 
+    X and Y sky signals are uncorrelated (<e_x * e_y*> = 0).
+
+Q2: Will calibration ALWAYS fail if XX, XY, YX, and YY polarisations are identical?
+A2: YES, IT WILL ALWAYS FAIL (OR DIVERGE).
+    When your signal generator sends identical, synchronized noise into both dipoles 
+    (v_X(t) = v_Y(t) = s(t)), the correlator produces visibilities:
+        V_pq,measured = <s_p * s_q*> * [ 1  1 ]
+                                       [ 1  1 ]
+    This matrix has rank 1 and determinant det(V_pq) = 0.
+    
+    In Paper I, Section 4 ("Matrix closures and singularities"), Smirnov explicitly 
+    warns about this exact singular matrix structure [ a a ; b b ]:
+    "The latter two are examples of redundant measurements: both receptors will 
+     measure the same voltage, or linearly dependent voltages... In all four cases 
+     there's irrecoverable loss of polarization information..."
+
+    When a calibration solver (e.g. StefCal / DP3) tries to fit a model based on 
+    an unpolarized source (B ∝ I) to a rank-1 fully-polarized measurement (U = I), 
+    the off-diagonal predictions (M_XY ≈ 0) directly contradict the data (V_XY = v_pq), 
+    causing solver failure, matrix inversion singularity, or non-convergence.
+
+
+2. DETAILED ANALYSIS BASED ON THE SMIRNOV RIME TRILOGY
+-------------------------------------------------------
+
+A. Paper I (A&A 527, A106) — Matrix Formulations & Singularities
+   - Baseline Visibility Matrix (Eq. 4 & 6):
+       V_pq = 2 * < v_p * v_q^H > = J_p * B * J_q^H
+   - Unpolarized Sky Coherence Matrix (Eq. 7):
+       B_unpol = [ 1  0 ]
+                 [ 0  1 ]
+     Assuming <e_x * e_y*> = 0.
+   - Signal Generator Injection (v_X = v_Y = s(t)):
+     Corresponds to Stokes I = 2S, Q = 0, U = 2S, V = 0 (100% linear polarization at 45°).
+     The true coherence matrix is:
+       B_injected = S * [ 1  1 ]
+                        [ 1  1 ]
+   - Singularities (Paper I, Sect. 4, Eq. 21):
+     Smirnov classifies matrices of the form [ a a ; b b ] as singular matrices where 
+     receptors measure identical/linearly-dependent voltages. Matrix inversion 
+     (V_pq^-1) fails, and polarization closure equations break down completely.
+
+B. Paper II (A&A 527, A107) — Calibration & Solvers
+   - Gain Solver Equation (Sect. 1.1 - 1.2):
+     Calibration attempts to minimize | G_p * X_pq * G_q^H - D_pq | in a least-squares sense.
+   - Model-Data Incompatibility:
+     - For diagonal gains G_p = diag(g_pX, g_pY), model visibilities predict:
+         M_XY ≈ 0  and  M_YX ≈ 0
+     - Injected Data visibilities contain:
+         D_XY = v_pq  and  D_YX = v_pq
+     - The residual |M_XY - D_XY|^2 = |v_pq|^2 cannot be driven to zero by any 
+       diagonal gain choice! The solver will oscillate or push gains to infinity/NaN.
+
+C. Paper III (A&A 527, A108) — Real-world Calibration & Differential Gains
+   - Demonstrates calibration using explicit RIMEs in MeqTrees (Eq. 2 & 6).
+   - In Section 1.4, Smirnov notes that even minor cross-polarization mismatches 
+     or unmodelled off-axis leakage disrupt least-squares gain solutions. A 
+     rank-1 hardware signal injected into a rank-2 solver represents a total 
+     breakdown of the solver's underlying physical assumptions.
+
+
+3. SUMMARY OF SOLUTIONS
+------------------------
+1. Hardware / Simulation Fix (Recommended):
+   Drive the X and Y dipoles using two INDEPENDENT noise generators n_X(t) and n_Y(t) 
+   such that <n_X * n_Y*> = 0. This produces true unpolarized noise (Stokes I > 0, U=0), 
+   yielding V_XY = 0 and allowing standard RIME calibration to converge instantly.
+
+2. Sky Model Fix:
+   If you must use identical signal generator noise (v_X = v_Y), inform your RIME 
+   calibration module that the calibration source has Stokes U = I (coherence matrix 
+   B = [1 1; 1 1]). Note that the calibration algorithm must also support non-diagonal 
+   rank-1 source matrices without zero-determinant matrix inversion errors.
+================================================================================
