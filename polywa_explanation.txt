@@ -1,0 +1,209 @@
+================================================================================
+POLYWA :: 70s CRT 3D POLYHEDRA TERMINAL (C++ & RUST WEBASSEMBLY EXPLANATION)
+================================================================================
+
+1. ARCHITECTURE OVERVIEW
+--------------------------------------------------------------------------------
+The project renders real-time 3D polyhedra inside an ASCII-based virtual 100x48 
+terminal display, styled in HTML/CSS to look like a 1970s phosphor CRT monitor.
+
+Data Flow Pipeline:
+  +-------------------------------------------------------------------------+
+  |                           Web Browser (DOM)                             |
+  |  polywa.html  <--- [Text Frame] --- Module.setTerminalText              |
+  |   * CRT scanlines / glass curvature overlay                             |
+  |   * Phosphor themes (Green, Amber, Cyan, White)                         |
+  |   * Mouse / Touch / Keyboard interactive listeners                      |
+  +------------------------------------┬------------------------------------+
+                                       | Exported C-ABI Function Calls
+                                       | (set_shape, rotate_manual, etc.)
+                                       v
+  +-------------------------------------------------------------------------+
+  |                     WebAssembly Runtime (WASM)                          |
+  |                                                                         |
+  |  1. Geometry: 7 Polyhedra definitions (Platonic / Archimedean / Kepler) |
+  |  2. 3D Mathematics: 3-Axis Euler Rotations                              |
+  |  3. Camera: Perspective Division (1/Z) & Viewport Mapping               |
+  |  4. Rasterizer: Bresenham Line + Depth Buffer (Z-Buffer) + Brightness   |
+  |  5. Compositor: Buffer formatting (100x48 ASCII text grid)              |
+  +-------------------------------------------------------------------------+
+
+Every frame, the WebAssembly engine:
+  1. Clears a 100x48 ASCII frame buffer and a floating-point Z-buffer.
+  2. Updates Euler rotation angles and auto-cycle timers.
+  3. Projects 3D vertices into 2D character coordinates.
+  4. Rasterizes edges using Bresenham's algorithm with depth testing and 
+     brightness shading.
+  5. Overlays HUD borders, status text, and controls.
+  6. Sends the completed 100x48 text frame to JavaScript to update the DOM.
+
+
+2. CORE 3D GRAPHICS MATHEMATICS & ALGORITHMS
+--------------------------------------------------------------------------------
+
+A. Polyhedra Geometry & The Golden Ratio (phi)
+   The engine implements 7 distinct 3D polyhedra:
+   
+   1. Tetrahedron (Platonic solid: 4 vertices, 6 edges, 4 faces)
+   2. Cube / Hexahedron (Platonic solid: 8 vertices, 12 edges, 6 faces)
+   3. Octahedron (Platonic solid: 6 vertices, 12 edges, 8 faces)
+   4. Dodecahedron (Platonic solid: 20 vertices, 30 edges, 12 faces):
+      Constructed using the golden ratio phi = (1 + sqrt(5)) / 2 ~ 1.618034.
+      - 8 vertices on cube corners: (+-s, +-s, +-s)
+      - 12 vertices on coordinate planes:
+        (0, +-s/phi, +-s*phi), (+-s/phi, +-s*phi, 0), (+-s*phi, 0, +-s/phi)
+   5. Icosahedron (Platonic solid: 12 vertices, 30 edges, 20 faces):
+      Constructed from 3 orthogonal golden rectangles:
+      (0, +-s, +-s*phi), (+-s, +-s*phi, 0), (+-s*phi, 0, +-s)
+   6. Cuboctahedron (Archimedean solid: 12 vertices, 24 edges, 14 faces):
+      Constructed from 12 vertices at the midpoints of cube/octahedron edges:
+      (+-s, +-s, 0), (+-s, 0, +-s), (0, +-s, +-s)
+   7. Stella Octangula (Kepler star polyhedron: 8 vertices, 24 edges, 8 faces):
+      Formed by two interpenetrating regular tetrahedra.
+
+B. Automated Edge Topology Generation (compute_edges_by_distance)
+   For semi-regular or complex solids, edges are generated programmatically:
+   1. Compute all pairwise squared Euclidean distances d^2 between vertices.
+   2. Determine the minimum non-zero distance (min_dist_sq).
+   3. Establish a threshold: max_dist_sq = min_dist_sq * (tolerance_factor)^2
+      (typically tolerance_factor = 1.05 ~ 1.06).
+   4. Connect all vertex pairs whose distance falls within this threshold.
+
+C. 3-Axis Euler Rotation
+   Extrinsic Y -> X -> Z rotation order is applied to every 3D point (x, y, z):
+   
+   - Rotation around Y-axis by angle ay:
+       x1 = x * cos(ay) + z * sin(ay)
+       z1 = -x * sin(ay) + z * cos(ay)
+       y1 = y
+       
+   - Rotation around X-axis by angle ax:
+       y2 = y1 * cos(ax) - z1 * sin(ax)
+       z2 = y1 * sin(ax) + z1 * cos(ax)
+       x2 = x1
+       
+   - Rotation around Z-axis by angle az:
+       x' = x2 * cos(az) - y2 * sin(az)
+       y' = x2 * sin(az) + y2 * cos(az)
+       z' = z2
+
+D. Perspective Camera Projection
+   The virtual camera is located along the Z axis at distance offset 3.2:
+     camera_z = z + 3.2
+   Points behind the near plane (camera_z <= 0.1) are clipped.
+   
+   Screen mapping to terminal character grid (100 columns, 48 rows):
+     factor = scale / camera_z
+     px = floor( ( x * factor + offset_x + 1.0 ) * COLS * 0.5 )
+     py = floor( ( -y * factor * 0.95 + offset_y + 1.0 ) * ROWS * 0.5 )
+     
+   (Note: The 0.95 factor compensates for monospace character aspect ratio).
+
+E. Bresenham Line Rasterization with Z-Buffering
+   1. Lines between projected vertices (x0, y0, z0) and (x1, y1, z1) are drawn
+      using integer Bresenham line stepping.
+   2. For each step, depth z is linearly interpolated by distance traveled.
+   3. If z < zbuf[idx], the pixel is drawn and zbuf is updated.
+   4. Brightness is calculated as an inverse-depth function:
+        brightness = (3.4 / z - 0.65) / 0.85
+      and clamped to an index 0..8 into the ASCII ramp: ".:-=+*#%@"
+      (0 = dim/distant '.', 8 = bright/close '@').
+   5. Vertex markers are drawn with character '@' and a depth bias (-0.02)
+      so they always appear in front of intersecting edges.
+
+
+3. TECHNICAL DEEP DIVE: C++ IMPLEMENTATION (cpp/polywa.cpp)
+--------------------------------------------------------------------------------
+- Emscripten Main Loop:
+    emscripten_set_main_loop(main_loop, 0, 1);
+  Hooks directly into the browser's requestAnimationFrame animation loop.
+
+- Inline JavaScript Bridge (EM_ASM):
+    EM_ASM({
+        if (Module && Module.setTerminalText) {
+            Module.setTerminalText(UTF8ToString($0));
+        }
+    }, out.c_str());
+  In C++, EM_ASM injects JavaScript code at compile time. $0 passes the pointer
+  to the C string out.c_str(), which UTF8ToString decodes from Emscripten's 
+  linear memory heap (HEAPU8).
+
+- Global State:
+  Variables (shapes, rotation angles, speed, render modes) are maintained as
+  standard C++ global variables and std::vector collections.
+
+- Exported Functions:
+  Functions annotated with EMSCRIPTEN_KEEPALIVE and extern "C" expose C-ABI
+  symbols (e.g. _set_shape, _rotate_manual) for DOM interaction.
+
+- Compilation (polywa.sh):
+    emcc polywa.cpp -o polywa.js \
+      -s WASM=1 \
+      -s SINGLE_FILE=1 \
+      -s EXPORTED_FUNCTIONS="['_main','_set_shape', ...]" \
+      -s EXPORTED_RUNTIME_METHODS="['ccall','cwrap','UTF8ToString']" \
+      -O2
+  Generates a single self-contained JS bundle with base64-embedded WebAssembly.
+
+
+4. TECHNICAL DEEP DIVE: RUST IMPLEMENTATION (rust/polywa.rs)
+--------------------------------------------------------------------------------
+- Safe Global State Management:
+  In modern Rust (2021/2024 editions), direct access to mutable statics 
+  ('static mut') produces compiler warnings (static_mut_refs lint) and risks 
+  undefined behavior.
+  In polywa.rs, the engine state is safely encapsulated inside:
+    static STATE: Mutex<Option<State>> = Mutex::new(None);
+  In single-threaded WebAssembly, locking this mutex incurs zero measurable 
+  runtime overhead while ensuring clean, safe, warning-free Rust code.
+
+- Zero-Copy Frame Transmission & JS Library Bridge:
+  Instead of allocating a null-terminated C string every frame, Rust builds a 
+  contiguous byte vector Vec<u8> (48 lines * 101 chars = 4848 bytes) and 
+  passes the pointer and length directly across the FFI boundary:
+    extern "C" {
+        fn push_terminal_frame(ptr: *const u8, len: usize);
+    }
+  The bridge is provided in rust/library.js using Emscripten's mergeInto:
+    mergeInto(LibraryManager.library, {
+        push_terminal_frame: function(ptr, len) {
+            if (typeof Module !== 'undefined' && Module.setTerminalText) {
+                Module.setTerminalText(UTF8ToString(ptr, len));
+            }
+        }
+    });
+  Using UTF8ToString(ptr, len) decodes directly from WASM memory by length 
+  without scanning for null terminators.
+
+- Native Rust Math & Safety:
+  - Uses native f32 methods (e.g. angle.sin(), angle.cos(), delta.hypot(), .clamp()).
+  - Array indexing on the 100x48 buffer is bounded and type-safe.
+
+- C-ABI Function Exports:
+  Functions exposed to JavaScript are decorated with #[no_mangle] pub extern "C":
+    #[no_mangle]
+    pub extern "C" fn set_shape(index: i32) { ... }
+
+- Compilation (rust/polywa.sh):
+    rustc --target wasm32-unknown-emscripten polywa.rs -o polywa.js \
+      -C opt-level=2 \
+      -C link-arg=--js-library=library.js \
+      -C link-arg=-sWASM=1 \
+      -C link-arg=-sSINGLE_FILE=1 \
+      -C link-arg=-sEXPORTED_FUNCTIONS=['_main','_set_shape', ... ] \
+      -C link-arg=-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString']
+
+
+5. SIDE-BY-SIDE FEATURE COMPARISON
+--------------------------------------------------------------------------------
+Feature                 C++ (cpp/polywa.cpp)            Rust (rust/polywa.rs)
+--------------------------------------------------------------------------------
+Compiler / Toolchain    emcc (Clang / LLVM)             rustc (wasm32-unknown-emscripten)
+JS Bridge Mechanism     EM_ASM inline macro             --js-library (library.js)
+Buffer Passing          Null-terminated string (c_str)  Contiguous slice (ptr + len)
+State Management        Global variables / vectors      Safe Mutex<Option<State>>
+Math Library            <cmath> (std::sqrt, hypot)      f32 intrinsics (.sqrt, .hypot)
+Export Conventions      EMSCRIPTEN_KEEPALIVE            #[no_mangle] pub extern "C"
+Output Packaging        Single-file Base64 WASM         Single-file Base64 WASM
+Visual / UX Parity      100% Identical                  100% Identical
+================================================================================
