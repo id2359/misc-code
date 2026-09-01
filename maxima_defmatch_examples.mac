@@ -1,0 +1,326 @@
+/*
+   maxima_defmatch_examples.mac
+
+   A focused collection of Maxima defmatch examples, from elementary
+   structural tests to parameterised scientific-expression recognisers.
+
+   Run with:
+
+       maxima --batch=maxima_defmatch_examples.mac
+
+   defmatch creates a TESTER.  It does not rewrite an expression and it does
+   not recursively search inside an expression.  On success, the tester
+   returns a list of equations describing the bindings.  On failure it
+   returns false.
+*/
+
+display2d : false$
+
+section(title) := (
+    print(""),
+    print("============================================================"),
+    print(title),
+    print("============================================================")
+)$
+
+show(label, value) := (
+    print(""),
+    print(label),
+    print(value)
+)$
+
+/* Return the right-hand side associated with NAME in a list such as
+   [aa = 3, bb = x].  This avoids depending on the order of bindings. */
+binding_value(name, bindings) := block([eq],
+    if bindings = false then return(false),
+    for eq in bindings do
+        if lhs(eq) = name then return(rhs(eq)),
+    false
+)$
+
+
+/* ---------------------------------------------------------------------- */
+section("1. THE SMALLEST USEFUL MATCHER: A TWO-ELEMENT LIST")$
+/* ---------------------------------------------------------------------- */
+
+matchdeclare([dm_first, dm_second], true)$
+defmatch(two_item_list, [dm_first, dm_second])$
+
+show("A two-element list matches:",
+     two_item_list([temperature, 21.5]))$
+show("A three-element list does not:",
+     two_item_list([x, y, z]))$
+show("A non-list does not:",
+     two_item_list(x + y))$
+
+
+/* ---------------------------------------------------------------------- */
+section("2. DECOMPOSING AN EQUATION")$
+/* ---------------------------------------------------------------------- */
+
+matchdeclare([dm_lhs, dm_rhs], true)$
+defmatch(equation_parts, dm_lhs = dm_rhs)$
+
+show("Extract the two sides of an equation:",
+     equation_parts(m*a = force - drag))$
+show("An ordinary expression is not an equation:",
+     equation_parts(m*a - force + drag))$
+
+
+/* ---------------------------------------------------------------------- */
+section("3. MATCHING AN INTEGER POWER")$
+/* ---------------------------------------------------------------------- */
+
+matchdeclare(dm_base, true, dm_exponent, integerp)$
+defmatch(integer_power, dm_base^dm_exponent)$
+
+show("An integer power:", integer_power((x + 1)^7))$
+show("A negative integer exponent also satisfies integerp:",
+     integer_power(q^(-3)))$
+show("A symbolic exponent does not satisfy integerp:",
+     integer_power(q^n))$
+
+
+/* ---------------------------------------------------------------------- */
+section("4. A CUSTOM PREDICATE: EVEN NONNEGATIVE POWERS")$
+/* ---------------------------------------------------------------------- */
+
+nonnegative_even_integer_p(e) :=
+    integerp(e) and e >= 0 and mod(e, 2) = 0$
+
+matchdeclare(dm_even_n, nonnegative_even_integer_p,
+             dm_even_base, true)$
+defmatch(even_power, dm_even_base^dm_even_n)$
+
+show("Even power:", even_power((a + b)^8))$
+show("Odd power:", even_power((a + b)^7))$
+show("Negative even exponent is rejected by this predicate:",
+     even_power(x^(-2)))$
+
+
+/* ---------------------------------------------------------------------- */
+section("5. REPEATED PATTERN VARIABLES REQUIRE EQUAL SUBEXPRESSIONS")$
+/* ---------------------------------------------------------------------- */
+
+/* Use a custom symbolic function.  In ordinary arithmetic, x+x is already
+   simplified to 2*x before defmatch sees it. */
+matchdeclare(dm_same, true)$
+defmatch(equal_pair, pair(dm_same, dm_same))$
+
+show("The two arguments are structurally equal:",
+     equal_pair(pair(sin(x), sin(x))))$
+show("The two arguments differ:",
+     equal_pair(pair(sin(x), cos(x))))$
+
+
+/* ---------------------------------------------------------------------- */
+section("6. A LITERAL PATTERN: NO PATTERN VARIABLES")$
+/* ---------------------------------------------------------------------- */
+
+/* A literal defmatch returns true rather than a binding list. */
+defmatch(is_done_marker, status(done))$
+
+show("Exact literal match:", is_done_marker(status(done)))$
+show("Different literal:", is_done_marker(status(waiting)))$
+
+
+/* ---------------------------------------------------------------------- */
+section("7. LINEAR IN AN ARBITRARY VARIABLE")$
+/* ---------------------------------------------------------------------- */
+
+/* dm_x is an explicit PATTERN ARGUMENT.  The created tester is therefore
+
+       linear_in(expr, variable)
+
+   The predicates require the coefficient and constant to be independent
+   of whichever variable is supplied to the tester. */
+matchdeclare(dm_a,
+             lambda([e], e # 0 and freeof(dm_x, e)),
+             dm_b,
+             freeof(dm_x))$
+
+defmatch(linear_in, dm_a*dm_x + dm_b, dm_x)$
+
+linear_result : linear_in(3*z + (q + 1)*z + q^2, z)$
+show("Linear in z; like terms are combined before matching:",
+     linear_result)$
+show("The extracted coefficient:",
+     binding_value('dm_a, linear_result))$
+show("The extracted constant term:",
+     binding_value('dm_b, linear_result))$
+show("Not linear in z:",
+     linear_in(z^2 + z + 1, z))$
+show("The same matcher can test a different variable:",
+     linear_in(5*t + sin(y), t))$
+
+
+/* ---------------------------------------------------------------------- */
+section("8. QUADRATIC IN AN ARBITRARY VARIABLE")$
+/* ---------------------------------------------------------------------- */
+
+matchdeclare(dm_qa,
+             lambda([e], e # 0 and freeof(dm_qx, e)),
+             [dm_qb, dm_qc],
+             freeof(dm_qx))$
+
+defmatch(quadratic_in,
+         dm_qa*dm_qx^2 + dm_qb*dm_qx + dm_qc,
+         dm_qx)$
+
+show("A full quadratic:",
+     quadratic_in(2*t^2 + (a + 1)*t + 7, t))$
+show("A quadratic with no linear term; dm_qb may bind to zero:",
+     quadratic_in(3*t^2 - 5, t))$
+show("A cubic does not match:",
+     quadratic_in(t^3 + t, t))$
+
+
+/* ---------------------------------------------------------------------- */
+section("9. A NESTED SCIENTIFIC FORM: SINUSOID WITH AFFINE PHASE")$
+/* ---------------------------------------------------------------------- */
+
+matchdeclare(dm_amp,
+             lambda([e], e # 0 and freeof(dm_sx, e)),
+             dm_omega,
+             lambda([e], e # 0 and freeof(dm_sx, e)),
+             dm_phase,
+             freeof(dm_sx))$
+
+defmatch(affine_phase_sine,
+         dm_amp*sin(dm_omega*dm_sx + dm_phase),
+         dm_sx)$
+
+show("A*sin(omega*t + phase):",
+     affine_phase_sine(4*sin(2*t + %pi/3), t))$
+show("Parameters may themselves be symbolic but independent of t:",
+     affine_phase_sine(A*sin(w*t + phi), t))$
+show("A chirp has a nonlinear phase and does not match:",
+     affine_phase_sine(sin(t^2 + t), t))$
+
+
+/* ---------------------------------------------------------------------- */
+section("10. MATCHING AN UNEVALUATED DEFINITE INTEGRAL")$
+/* ---------------------------------------------------------------------- */
+
+/* The apostrophe creates the noun form of integrate, preventing immediate
+   evaluation.  This is useful for inspecting mathematical syntax. */
+matchdeclare(dm_integrand, true,
+             dm_intvar, atom,
+             [dm_lower, dm_upper], true)$
+
+defmatch(definite_integral,
+         'integrate(dm_integrand, dm_intvar, dm_lower, dm_upper))$
+
+noun_integral : 'integrate(exp(-t^2), t, 0, 1)$
+show("Parts of an unevaluated integral:",
+     definite_integral(noun_integral))$
+show("An evaluated number is no longer an integral expression:",
+     definite_integral(integrate(t, t, 0, 1)))$
+
+
+/* ---------------------------------------------------------------------- */
+section("11. MATCHING AN UNEVALUATED DERIVATIVE")$
+/* ---------------------------------------------------------------------- */
+
+matchdeclare(dm_diff_expr, true,
+             dm_diff_var, atom,
+             dm_diff_order, integerp)$
+
+defmatch(noun_derivative,
+         'diff(dm_diff_expr, dm_diff_var, dm_diff_order))$
+
+show("A third derivative kept in noun form:",
+     noun_derivative('diff(u(x), x, 3)))$
+show("An already evaluated derivative no longer has that structure:",
+     noun_derivative(diff(x^4, x, 3)))$
+
+
+/* ---------------------------------------------------------------------- */
+section("12. GREEDY MATCHING ACROSS A SUM")$
+/* ---------------------------------------------------------------------- */
+
+/* Addition and multiplication receive special treatment.  A pattern
+   variable can collect several operands.  These predicates are mutually
+   exclusive, making the partition easier to understand. */
+matchdeclare(dm_atomic_terms, atom,
+             dm_compound_terms, lambda([e], not atom(e)))$
+
+defmatch(split_sum,
+         dm_atomic_terms + dm_compound_terms)$
+
+show("Partition atomic and compound terms:",
+     split_sum(8 + %pi + a*b + sin(x) + 2^n))$
+
+
+/* ---------------------------------------------------------------------- */
+section("13. SPLITTING A PRODUCT INTO CONSTANT AND VARIABLE-DEPENDENT PARTS")$
+/* ---------------------------------------------------------------------- */
+
+matchdeclare(dm_constant_factor,
+             freeof(dm_px),
+             dm_dependent_factor,
+             lambda([e], not freeof(dm_px, e)))$
+
+defmatch(split_product,
+         dm_constant_factor*dm_dependent_factor,
+         dm_px)$
+
+show("Separate factors independent of x from factors containing x:",
+     split_product(3*a*x^2*sin(x), x))$
+show("The same expression split with respect to a instead:",
+     split_product(3*a*x^2*sin(x), a))$
+
+
+/* ---------------------------------------------------------------------- */
+section("14. DOMAIN-SPECIFIC SYMBOLIC DATA")$
+/* ---------------------------------------------------------------------- */
+
+/* defmatch works just as well on user-defined symbolic structures. */
+matchdeclare(dm_value, numberp, dm_uncertainty, numberp)$
+defmatch(length_in_metres, quantity(dm_value, metre))$
+
+defmatch(measurement_with_uncertainty,
+         measurement(dm_value, plus_or_minus(dm_uncertainty)))$
+
+show("Recognise a length with the expected unit:",
+     length_in_metres(quantity(12.5, metre)))$
+show("Reject a different unit:",
+     length_in_metres(quantity(12.5, second)))$
+show("Extract a value and an uncertainty:",
+     measurement_with_uncertainty(
+         measurement(9.81, plus_or_minus(0.02))))$
+
+
+/* ---------------------------------------------------------------------- */
+section("15. defmatch TESTS ONLY THE TOP LEVEL")$
+/* ---------------------------------------------------------------------- */
+
+matchdeclare(dm_sin_arg, true)$
+defmatch(is_sine, sin(dm_sin_arg))$
+
+show("Top-level sine:", is_sine(sin(x + y)))$
+show("The sine is nested inside a sum, so the top-level match fails:",
+     is_sine(1 + sin(x + y)))$
+
+print("")$
+print("For recursive transformation, use defrule with apply1/apply2.")$
+print("For automatic simplification, use tellsimp or tellsimpafter carefully.")$
+
+
+/* ---------------------------------------------------------------------- */
+section("16. INSPECTING AND CLEANING UP PATTERN DEFINITIONS")$
+/* ---------------------------------------------------------------------- */
+
+show("Names carrying a matchdeclare property:",
+     propvars(matchdeclare))$
+
+/* disprule can display defmatch definitions as well as rewrite rules. */
+print("A displayed matcher definition follows:")$
+disprule(linear_in)$
+
+/* clear_rules removes defmatch/defrule/tellsimp rules made in this session.
+   It does not remove matchdeclare properties. */
+clear_rules()$
+
+print("")$
+print("End of defmatch examples.")$
