@@ -1,0 +1,6 @@
+criterion,type,unit
+cost,cost,kAUD
+throughput,benefit,Gsamp/s
+latency,cost,ms
+power,cost,kW
+reliability,benefit,MTBF_kh
