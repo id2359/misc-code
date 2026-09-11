@@ -4,11 +4,9 @@
 # Uses the bit-parallel algorithm for patterns up to 64 bytes and falls back
 # to dynamic programming for longer patterns.
 
-import strformat, strutils, times
+const MaxBitParallelPattern* = 64
 
-const MaxBitParallelPattern = 64
-
-proc levenshteinDp(a, b: string): int =
+proc levenshteinDp*(a, b: string): int =
   ## Compute edit distance with the classic O(n*m) dynamic-programming method.
   var distances = newSeq[int](b.len + 1)
   for j in 0..b.len:
@@ -27,11 +25,12 @@ proc levenshteinDp(a, b: string): int =
 
   distances[b.len]
 
-proc myers64(text, pattern: string): int =
+proc myers64*(text, pattern: string): int =
   ## Compute edit distance using Myers's bit-parallel algorithm.
   ## The pattern must contain between 1 and 64 bytes.
   let patternLength = pattern.len
-  assert patternLength in 1..MaxBitParallelPattern
+  if patternLength < 1 or patternLength > MaxBitParallelPattern:
+    raise newException(ValueError, "Pattern length must be between 1 and 64 bytes")
 
   var characterMasks: array[256, uint64]
   for i in 0..<patternLength:
@@ -78,6 +77,8 @@ proc myers*(a, b: string): int =
     levenshteinDp(text, pattern)
 
 when isMainModule:
+  import strformat, strutils, times
+
   let tests = @[
     ("kitten", "sitting"),
     ("saturday", "sunday"),
