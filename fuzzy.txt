@@ -1,0 +1,570 @@
+fuzzy2.txt - line-by-line cheatsheet for fuzzy.k
+===============================================
+Kona (K3 dialect). Implements the fuzzy on/off controller from
+Skomorokhov et al., "Fuzzy Control of Technological Processes in
+APL2" (APL95). Companion to fuzzy.k / fuzzy2.k.
+
+Assumes you know Python and something APL-ish, and are learning K.
+Run the program with:  k fuzzy.k
+
+
+------------------------------------------------------------
+0. How to read K (K3 / Kona)
+------------------------------------------------------------
+
+Evaluation is RIGHT TO LEFT. There is NO operator precedence.
+  2*3+4     is  2*(3+4) = 14, not (2*3)+4
+  1-abs x   is  1-(abs x)
+
+The SAME symbol is often monadic (one argument, on the right) or
+dyadic (two arguments, left and right). Meaning depends on valence:
+  -x        negate
+  x-y       subtract
+  #x        count
+  3#x       take first 3
+  _x        floor
+  2_ x      drop first 2
+
+Application / indexing uses brackets OR juxtaposition:
+  f[x]      f x        same call
+  f[x;y]               two arguments (semicolon-separated)
+  a[i]      a i        index (0-based)
+  a[i;j]               matrix index, row i col j
+  M 2                  row 2 of M (juxtaposition)
+
+Nouns (data) juxtapose into lists:
+  1 2 3                vector
+  (1 2;3 4)            2x2 matrix (rows separated by ;)
+
+Lambdas:
+  {x+1}                monadic; args default to x, y, z
+  {[a;b] a+b}          named args
+  {x+y*z}[2;3;4]       = 14
+
+A projection freezes some args:
+  add:{x+y}
+  plus2:add[2]         plus2 5  ->  7
+
+Adverbs modify verbs (like APL operators):
+  '     each          1 2 3+'10 20 30   ->  11 22 33
+  /     over (reduce) +/1 2 3 4         ->  10
+  \     scan          +\1 2 3 4         ->  1 3 6 10
+  /:    each-right    1 2+/:10 20       ->  (11 12;21 22)
+  \:    each-left     1 2+\:10 20       ->  (11 21;12 22)
+
+Verb then adverb: +/ is "plus-over". |/ is "max-over". ,/ flattens.
+
+I/O and script control:
+  `0: x        print x to stdout (string or char list)
+  \r n         set random seed to n
+  \\           end of script (required at end of a .k file)
+
+Comments: a line (or the rest of a line) starting with / is a comment.
+  IMPORTANT: " /" with a leading space also starts a comment mid-line.
+  So never write  x / y  for division-like intent; use % .
+
+K3 has NO closures: a lambda cannot see locals of an enclosing
+function. Pass what you need as explicit arguments.
+
+
+------------------------------------------------------------
+1. Header comments (lines 1-4)
+------------------------------------------------------------
+
+  / fuzzy.k - fuzzy on/off controller from Skomorokhov et al.,
+  / "Fuzzy Control of Technological Processes in APL2" (APL95), in Kona (K3).
+  / Run:  k fuzzy.k
+  / Lines starting with "/ " are comments. Careful: " /" mid-line also starts one.
+
+Leading / starts a comment. The fourth line warns about the mid-line
+" /" trap mentioned above.
+
+
+------------------------------------------------------------
+2. Membership functions (lines 6-15)
+------------------------------------------------------------
+
+Paper: N = Nc - Nd (boxes on conveyor minus desired),
+       D = N[t] - N[t-1] (rate of change).
+Five triangular fuzzy sets each: big-neg, neg, zero, pos, big-pos.
+
+  MuN:-200 -100 0 100 200          / N = Nc-Nd   (deviation from target)
+  MuD:-100 -50 0 50 100            / D = N[t]-N[t-1]   (rate of change)
+
+Assign peak vectors. Spacing is 100 for N, 50 for D. Same as the
+paper's MuN / MuD peaks (the paper also tabulates half-way points;
+we only need the peaks).
+
+  abs:{x|-x}                       / | is max, so x|-x is absolute value
+
+Monadic lambda. | dyadic is MAX (not bitwise or). So x|-x is the
+larger of x and -x, i.e. absolute value.
+  abs[-25]  ->  25
+
+  / NB Kona: int%int is INTEGER division (25%100 is 0), so force a float with 1.0*
+  member:{[x;p] x:(*p)|(*|p)&x; 0|1-abs[x-p]%1.0*p[1]-p 0}
+  /  (*p) first, (*|p) last, & min, | max
+
+Paper formula (triangular membership):
+  weight_i = max(0, 1 - |x - peak_i| / spacing)
+
+Worked left to right inside the lambda (statements separated by ;):
+
+  x:(*p)|(*|p)&x
+      Clamp x into [first peak, last peak] so anything past +-200 (N)
+      or +-100 (D) is "big" with weight 1, as in the paper.
+        *p       first of p          (monadic * = first)
+        *|p      last of p
+                 (monadic | is REVERSE; * takes first of reversed)
+        &        dyadic MIN
+        |        dyadic MAX
+      So (*p)|((*|p)&x)  =  max(first, min(last, x))
+      Example: p=MuN, x=300 -> max(-200, min(200,300)) = 200
+               x=-25        -> max(-200, min(200,-25)) = -25
+
+  0|1-abs[x-p]%1.0*p[1]-p 0
+      Right-to-left:
+        p 0          p[0] = first peak (-200)
+        p[1]-p 0     spacing (100 for MuN)
+        1.0*...      force float (CRITICAL on Kona)
+        abs[x-p]     |x - each peak|   (p is a vector; - broadcasts)
+        ...%...      divide (float)
+        1-...        one minus
+        0|...        max with 0 = clamp negatives to 0
+
+  Example: member[-25; MuN]
+    peaks     -200   -100     0     100    200
+    |x-peak|   175     75    25     125    225
+    /100       1.75   0.75  0.25   1.25   2.25
+    1-that    -0.75   0.25  0.75  -0.25  -1.25
+    0|that       0    0.25  0.75      0      0
+  Matches the paper: MEMBER(-25, MuN) = 0 0.25 0.75 0 0
+
+  Without 1.0*: 25%100 is integer 0 on Kona, and the weights break.
+
+
+------------------------------------------------------------
+3. Fuzzy AND (lines 17-19)
+------------------------------------------------------------
+
+Paper: FUZZY builds a matrix of every (D-set, N-set) pair, using
+either product (x) or minimum as the AND.
+
+  fuzzy:{[o;d;n] o\:[d;n]}
+
+  o   the AND verb (* for product, & for min)
+  d   membership vector for D (length 5)
+  n   membership vector for N (length 5)
+  o\: each-left: for each element of d, apply o to the whole of n.
+      So row i = d[i] o n   (a 5x5 matrix)
+
+  Example: d = member[5;MuD] = 0 0 0.9 0.1 0
+           n = member[-50;MuN] = 0 0.5 0.5 0 0
+  fuzzy[*;d;n] row 2 (0-based) = 0.9 * n = 0 0.45 0.45 0 0
+  fuzzy[*;d;n] row 3           = 0.1 * n = 0 0.05 0.05 0 0
+  fuzzy[&;d;n] rows 2,3 cols 1,2 = (0.5 0.5; 0.1 0.1)
+  (min of 0.9&0.5 etc.)
+
+
+------------------------------------------------------------
+4. Rule bases (lines 21-23)
+------------------------------------------------------------
+
+Paper RB0 (machine currently OFF): 1 means "switch ON".
+Paper RB1 (machine currently ON):  1 means "switch OFF".
+Rows = D sets (big-neg .. big-pos), cols = N sets.
+
+  RB0:(1 1 1 1 0;1 1 0 0 0;1 1 0 0 0;1 0 0 0 0;0 0 0 0 0)
+  RB1:(0 0 0 0 1;0 0 0 0 1;0 0 1 1 1;0 0 1 1 1;0 1 1 1 1)
+
+( ; ) builds a matrix from row vectors. Two rule bases give
+hysteresis: the decision depends on whether the machine is already
+on or off (paper sections on RB0/RB1).
+
+
+------------------------------------------------------------
+5. Decision / controllers (lines 25-37)
+------------------------------------------------------------
+
+Paper APL2:  ACTION <- (,M = max/,M) / ,RB
+  Flatten M, find cells equal to the max, compress RB with that mask.
+  (Takes the first max when several tie, via APL's compress order.)
+
+  control:{[rb;m] m:,/m; (,/rb)@m?|/m}
+
+  m:,/m          flatten membership matrix (,/ = join-over / ravel)
+  |/m            max-over flattened m
+  m?|/m          ? is FIND: index of first occurrence of max in m
+  (,/rb)@...     flatten rb, then @ = index-at that position
+
+  Example with M = fuzzy[*; member[5;MuD]; member[-50;MuN]]:
+    max is 0.45, first at flat index 11 (row 2, col 1)
+    flat RB0[11] = 1   ->  control[RB0;M] = 1  (switch on)
+    flat RB1[11] = 0   ->  control[RB1;M] = 0  (leave on)
+  Matches the paper's worked example (N=-50, D=5).
+
+  fz:{[n;d;s] a:control[(RB0;RB1)s; fuzzy[*;member[d;MuD];member[n;MuN]]]; ~s=a}
+
+  Fuzzy controller: args n (deviation), d (delta), s (state 0/1).
+  (RB0;RB1)s     pick rule base by current state (index s)
+  fuzzy[*;...]   product-AND membership matrix
+  a:control[...] proposed action (1 = "do the switch named by that RB")
+  ~s=a           new state. Parsed right-to-left as ~(s=a).
+                 Action a=1 means "take the RB's switch"; a=0 means
+                 "do nothing". Resulting truth table:
+    s  a  ~(s=a)  meaning
+    0  1    1     was off, switch on  -> on
+    0  0    0     was off, do nothing -> off
+    1  1    0     was on,  switch off -> off
+    1  0    1     was on,  do nothing -> on
+  So a=1 flips; a=0 keeps s.
+
+  th:{[n;d;s] n<0}
+
+  Naive threshold: on whenever below target. Ignores d and s.
+  (s is unused; K does not require you to use every arg.)
+
+  fz50:{[n;d;s] fz[n-50;d;s]}
+
+  Same fuzzy rules, but pretend target is 50 higher (feed n-50).
+  Paper RB0 only turns on once N looks "negative" (~ -50), so the
+  unshifted fuzzy loop settles ~50 boxes below target. Aiming 50
+  higher corrects that bias. On this plant (P=60) it then matches
+  the naive threshold exactly.
+
+
+------------------------------------------------------------
+6. Checks against the paper (lines 39-50)
+------------------------------------------------------------
+
+  fmt:{$0.01*_ 0.5+100*x}           / round to 2 dp, then format
+
+  Round-half-up to 2 decimal places, then $ formats as a string.
+    100*x       shift
+    0.5+...     prepare for round
+    _ ...       floor (so _0.5+ is round-to-nearest)
+    0.01*...    shift back
+    $ ...       monadic format (number -> char list)
+  fmt 44.333 -> "44.33"
+
+  show:{[t;ok] `0: (-34$t),(("FAIL";"ok")ok),"\n"}
+
+  Print a padded label and "ok" or "FAIL".
+    -34$t       dyadic $ : left-pad/truncate t to width 34
+                (negative width = left justify, pad on right)
+    ("FAIL";"ok")ok   index the 2-vector by boolean ok (0/1)
+    ,           concatenate char lists
+    `0:         print
+
+  `0: "== checks from the paper ==\n"
+
+  Literal banner.
+
+  show["MEMBER(-25,MuN) = 0 .25 .75 0 0";1e-9>|/abs member[-25;MuN]-0 0.25 0.75 0 0]
+
+  Compare computed membership to the paper within 1e-9.
+    member[-25;MuN]-0 0.25 0.75 0 0    elementwise difference
+    abs ...                             absolute values
+    |/ ...                              max of those
+    1e-9>|/...                          true if max error < 1e-9
+
+  M:fuzzy[*;member[5;MuD];member[-50;MuN]]
+  show["x FUZZY row3 = 0 .45 .45 0 0";1e-9>|/abs M[2]-0 0.45 0.45 0 0]
+  show["x FUZZY row4 = 0 .05 .05 0 0";1e-9>|/abs M[3]-0 0.05 0.05 0 0]
+
+  Paper's product-AND rows (paper is 1-based "row3/row4"; K is
+  0-based so M[2] and M[3]).
+
+  M2:fuzzy[&;member[5;MuD];member[-50;MuN]]
+  show["min FUZZY rows3/4 = .5 .5 / .1 .1";1e-9>|/,/abs M2[2 3;1 2]-(0.5 0.5;0.1 0.1)]
+
+  Min-AND submatrix. M2[2 3;1 2] selects rows 2,3 and cols 1,2.
+  ,/abs ... flattens absolute differences before max-over.
+
+  show["RB0 control (N=-50,D=5) = 1";1=control[RB0;M]]
+  show["RB1 control (N=-50,D=5) = 0";0=control[RB1;M]]
+
+  Paper decision for those weights.
+
+
+------------------------------------------------------------
+7. Conveyor simulation (lines 52-63)
+------------------------------------------------------------
+
+  Nd:400; P:60; T:150
+
+  Target stock 400, machine produces 60 boxes/step when on, 150 steps.
+  (Simplified plant: one machine, one stock variable N = Nc-Nd.)
+
+  \r 1995
+
+  Set RNG seed (year of the paper) so runs are reproducible.
+
+  dem:(15+T _draw 21)-T _draw 11
+
+  Net demand per step.
+    T _draw 21     T random ints in 0..20  (_draw is built-in)
+    15+...         consumption ~15..35
+    T _draw 11     returns ~0..10
+    subtract       net draw ~5..35, mean around 20
+
+  dem:dem+25*(!T)_lin 60+!30     / _lin: is each t in 60..89?
+
+  Demand surge of +25 on steps 60..89.
+    !T             enumerate 0..T-1
+    60+!30         60..89
+    a _lin b       1 where each a is in b (membership / "in")
+    25*...         scale the 0/1 mask
+    dem+...        add to demand
+
+  step:{[ctl;st;d] s:ctl[st 0;(st 0)-st 1;st 2]; ((st 0)+(P*s)-d;st 0;s)}
+
+  One simulation step.
+    st  is (N; previous N; machine on?)
+    d   is this step's demand
+    ctl is the controller (fz, th, or fz50)
+    s:ctl[N; N-prevN; on]     decide new on/off
+    new state: (N + P*s - d;  old N;  s)
+
+  run:{[ctl] 1_ (-150;-150;0) step[ctl]\ dem}   / start 150 boxes short
+
+  Run the whole demand series under controller ctl.
+    step[ctl]          projection: freeze ctl, leave (st;d) free
+    seed step[ctl]\ dem
+                       \ is scan: feed seed through the verb with each
+                       dem element, collecting intermediate states.
+                       Verb is dyadic: left=state, right=demand item.
+    (-150;-150;0)      start 150 below target, machine off
+    1_ ...             drop the initial seed; keep one state per step
+
+  Tiny example (P=60, threshold ctl, dem all 20s, seed N=-50):
+    t0 seed:  N=-50  prev=-50  on=0
+    t1: on because -50<0; N=-50+60-20=-10; prev=-50; on=1
+    ... continues
+
+
+------------------------------------------------------------
+8. Report + ASCII plot (lines 65-108)
+------------------------------------------------------------
+
+  summary:{[name;r] n:r[;0]; s:r[;2]
+   `0: name,"\n"
+   `0: "  mean |dev|  ",(fmt(+/abs n)%1.0*#n),"\n"
+   `0: "  max  |dev|  ",($|/abs n),"   (after warm-up t>=20: ",($|/abs 20_ n),")\n"
+   `0: "  switches    ",($+/~(1_ s)=-1_ s),"\n"
+   `0: "  time on     ",(fmt 100*(+/s)%1.0*#s),"%\n"}
+
+  Multi-line function (statements on separate lines; K allows this).
+    r[;0]     column 0 = N over time
+    r[;2]     column 2 = on/off over time
+    +/abs n   sum of |N|
+    %1.0*#n   divide by count (float)
+    |/abs n   max |N|
+    20_ n     drop first 20 (warm-up)
+    1_ s      drop first on/off
+    -1_ s     drop last  on/off
+    (1_s)=-1_s   adjacent pairs equal?
+    ~...         not equal = a switch happened
+    +/...        count switches
+
+  The Dec 2021 Termux Kona (kona/stable 20211225) throws spurious
+  rank/type errors when ONE function holds several each-results in
+  locals. So the plot is built with top-level statements instead.
+
+  chunks:{(3*!_(#x)%3)_ x}           / cut a run into chunks of 3 states
+
+  Cut list x into length-3 groups (drop a trailing remainder).
+    #x              count
+    (#x)%3          count/3 (int div is fine here)
+    _ ...           floor (no-op on int, but safe)
+    !n              0..n-1
+    3*!n            0 3 6 ...
+    indices _ x     cut x at those indices (dyadic _ = cut/drop)
+
+  Example: chunks !12 -> (0 1 2; 3 4 5; 6 7 8; 9 10 11)
+
+  mean0:{(+/x[;0])%1.0*#x}           / mean N of a chunk
+  sum2:{+/{x 2}'x}                   / steps the machine was on in a chunk
+
+  mean0: sum of N column / length.
+  sum2: for each state in the chunk, take field 2 (on flag), then sum.
+    {x 2}'x     each state -> its on flag
+    +/          sum -> 0..3 for a 3-step chunk
+
+  snap:{40*_ 0.5+(-5|5&x%40)}        / snap a mean to the nearest row
+
+  Quantise a mean N onto the plot grid (rows every 40 boxes,
+  clamped to +-200).
+    x%40        divide by 40  (float if x is float; INT if x is int!)
+    5&...       min with 5
+    -5|...      max with -5     -> clamp to [-5,5]
+    0.5+...  _  round
+    40*...      back to box units
+
+  Examples (integer x, so % is int div):
+    snap 37  -> 0      (37%40=0)
+    snap 83  -> 80     (83%40=2, 40*2=80)
+    snap -95 -> -80
+    snap 250 -> 200    (clamped)
+  In the plot, mean0 returns floats, so % does real division and
+  rounding lands on the nearest 40.
+
+  lv:40*5-!11                        / row levels
+  lab:5$'$lv                         / row labels
+
+  lv = 200 160 ... 0 ... -200
+    !11        0..10
+    5-!11      5 4 ... 0 ... -5
+    40*...     scale
+  lab: format each number, then pad to width 5.
+    $'lv       each-format
+    5$ ...     dyadic pad
+
+  cells:{[b;v] g:v=b; " *-"@g+2*(v=0)&~g}
+
+  Build one plot row for level v against snapped column values b.
+    g:v=b              1 where this column's snapped value equals v
+    (v=0)&~g           1 on the target row (v=0) where there is no star
+    g+2*(...)          0 -> space, 1 -> *, 2 -> -
+    " *-"@...          index the charset (0-based)
+
+  Example b = 80 40 0 -40 -80 0 40
+    cells[b;0]    ->  --*--*-     (stars on zeros, dashes elsewhere on target)
+    cells[b;40]   ->  " *    *"
+    cells[b;-200] ->  "       "   (all spaces)
+
+  F:run[fz]; H:run[th]; F50:run[fz50]
+  `0: "\n== conveyor: target Nd=",($Nd),", machine adds P=",($P),"/step, ",($T)," steps ==\n"
+  summary["fuzzy (paper rules)";F]
+  summary["naive threshold (on iff N<0)";H]
+  summary["fuzzy, aimed 50 boxes higher";F50]
+
+  Run three controllers, print the banner and three summaries.
+  Typical result (seed 1995): fuzzy mean|dev|~44, threshold~19,
+  fz50~19 (identical to threshold on this plant).
+
+  pc:chunks F
+  pb:snap[mean0'pc]
+  pk:sum2'pc
+
+  pc  list of 3-step chunks
+  pb  snapped mean N per chunk   (the column heights)
+  pk  how many of the 3 steps were on (0..3)
+
+  IMPORTANT parse note (2021 and 2023 Kona):
+    snap[mean0'pc]   is correct: each mean0, then snap the vector
+    snap mean0'pc    parses as (snap mean0)'pc  -- wrong valence
+  Always bracket when the left verb should apply AFTER an each.
+
+  `0: "\nfuzzy  (N = Nc-Nd, one column = 3 steps)\n"
+  rows:{cells[pb;x]}'lv
+  `0: lab,'" |",/:rows
+  `0: "   on |",(" .:#"@pk),"\n"
+  `0: "      |",(20#" "),"^surge^^^^",(20#" "),"t=150\n"
+
+  Draw the plot:
+    rows:{cells[pb;x]}'lv     each level -> one char row
+    lab,'" |",/:rows
+      ,/:  each-right join: prepend " |" to each row string
+      ,'   each-join labels onto those
+    " .:#"@pk                 0->space 1->. 2->: 3->#  (on density)
+    20#" "                    take: 20 spaces
+    "^surge^^^^"              marks steps ~60-89 under the columns
+
+  Then the same four statements are repeated for H (threshold).
+
+  \\
+
+  End of script. Without this, Kona drops into an interactive REPL
+  after loading the file.
+
+
+------------------------------------------------------------
+9. Operator reference (every primitive used in fuzzy.k)
+------------------------------------------------------------
+
+symbol   monadic              dyadic
+------   -------------------  -----------------------------
++        (identity / flip)    add
+-        negate               subtract
+*        first                multiply
+%        reciprocal           divide (INT if both args int!)
+|        reverse              max
+&        where (indices of 1) min
+#        count                take (n#x) / reshape
+_        floor                drop / cut (n_x or i_x)
+!        enumerate 0..n-1     (mod / key; not used dyadic here)
+$        format to chars      pad/cast to width (n$s)
+=        ---                  equal (returns 0/1)
+<        ---                  less than
+~        not                  match (deep equal, 0/1)
+?        ---                  find (index of first)
+@        ---                  index at
+,        enlist (wrap)        join / catenate
+:        ---                  assign (name:value)
+;        ---                  statement / list separator
+/        [adverb] over        ---
+\        [adverb] scan        ---
+'        [adverb] each        ---
+/:       [adverb] each-right  ---
+\:       [adverb] each-left   ---
+[]       ---                  index / call / projection
+{}       ---                  lambda
+()       ---                  grouping / matrix rows
+`0:      print to stdout      ---
+\r       set RNG seed         ---
+\\       end script           ---
+_draw    ---                  n _draw m : n ints in 0..m-1
+_lin     ---                  a _lin b : a's membership in b
+
+
+Idioms used in the file:
+  x|-x          abs
+  *|p           last (reverse then first)
+  ,/m           flatten / ravel
+  |/m           max over
+  +/m           sum over
+  0|x           clamp below at 0 (max with 0)
+  -5|5&x        clamp to [-5,5]
+  _0.5+x        round to nearest int
+  1_ x / -1_ x  drop first / drop last
+  (a;b)s        pick a or b by index s
+
+
+------------------------------------------------------------
+10. Kona gotchas (especially Termux 20211225)
+------------------------------------------------------------
+
+1. int % int is INTEGER division.
+     25%100 -> 0
+     25%1.0*100 -> 0.25
+   Always force a float when you mean real division.
+
+2. Comments: " /" with a leading space starts a comment.
+   Do not write expressions like  x / y.
+
+3. No closures. Lambdas only see globals and their own args.
+   Pass locals in explicitly.
+
+4. Dec 2021 Kona (Termux package kona/stable 20211225):
+   - Spurious rank/type errors when a multi-line function keeps
+     several each-results in locals. Work around: top-level
+     statements (as in the plot section).
+   - Parse: snap mean0'pc  means (snap mean0)'pc
+     Write snap[mean0'pc] with brackets.
+
+5. +: and similar "gets" forms can echo their result when a script
+   runs; prefer name:value assignment if you want silence.
+
+6. Right-to-left + no precedence means you must parenthesise more
+   than in Python. When in doubt, add ().
+
+7. $ on a nested list can type-error; format atoms / flat vectors,
+   or build strings by hand.
+
+8. A .k script should end with \\ or Kona stays in the REPL.
+
+
+------------------------------------------------------------
+end of fuzzy2.txt
+------------------------------------------------------------
